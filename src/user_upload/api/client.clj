@@ -42,19 +42,26 @@
   "Make an authenticated request to backend API with error handling."
   [method base-url endpoint & [options]]
   (let [url (str base-url endpoint)
-        base-headers (if (:skip-auth options)
-                       {"Accept" "application/json"}
-                       (auth-headers))
-        ;; When using :json-params, don't set Content-Type header
-        headers (if (:json-params options)
-                  (dissoc base-headers "Content-Type")
-                  base-headers)
-        request-options (-> options
-                            (dissoc :skip-auth)
-                            (merge {:headers headers
-                                    :throw-exceptions false
-                                    :as :json
-                                    :coerce :always}))]
+        ;; Build base headers without Content-Type
+        auth-hdrs (if (:skip-auth options)
+                    {"Accept" "application/json"}
+                    (dissoc (auth-headers) "Content-Type"))
+        ;; For :json-params requests, add :content-type :json
+        ;; For other requests, add Content-Type header manually
+        request-options (if (:json-params options)
+                          (-> options
+                              (dissoc :skip-auth)
+                              (merge {:headers auth-hdrs
+                                      :content-type :json
+                                      :throw-exceptions false
+                                      :as :json
+                                      :coerce :always}))
+                          (-> options
+                              (dissoc :skip-auth)
+                              (merge {:headers (assoc auth-hdrs "Content-Type" "application/json")
+                                      :throw-exceptions false
+                                      :as :json
+                                      :coerce :always})))]
     (log/info "Backend API request" {:method method :endpoint endpoint :base-url base-url})
     (try
       (let [response (case method

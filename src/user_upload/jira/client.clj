@@ -47,16 +47,24 @@
   "Make an authenticated request to Jira API with error handling."
   [method endpoint & [options]]
   (let [url (str (base-url) endpoint)
-        ;; When using :json-params, don't set Content-Type header
-        base-headers (auth-headers)
-        headers (if (:json-params options)
-                  (dissoc base-headers "Content-Type")
-                  base-headers)
-        request-options (merge {:headers headers
-                                :throw-exceptions false
-                                :as :json
-                                :coerce :always}
-                               options)]
+        ;; Don't include Content-Type in base headers at all
+        ;; Let clj-http handle it based on the request type
+        base-headers {"Authorization" (get (auth-headers) "Authorization")
+                      "Accept" "application/json"}
+        ;; For :json-params, add content-type json explicitly
+        ;; clj-http should override this if needed but this ensures it's set
+        request-options (if (:json-params options)
+                          (merge {:headers base-headers
+                                  :content-type :json
+                                  :throw-exceptions false
+                                  :as :json
+                                  :coerce :always}
+                                 options)
+                          (merge {:headers (assoc base-headers "Content-Type" "application/json")
+                                  :throw-exceptions false
+                                  :as :json
+                                  :coerce :always}
+                                 options))]
     (log/info "Jira API request" {:method method :endpoint endpoint})
     (try
       (let [response (case method

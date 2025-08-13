@@ -536,6 +536,44 @@
 
 ---
 
+### Step 20: Critical Bug Fixes ✅
+**Date:** 2025-08-13
+**Status:** Completed
+**Files Modified:**
+- `src/user_upload/jira/client.clj` - Fixed attachment upload headers
+- `src/user_upload/workflow/approval.clj` - Fixed JSON embedding and ADF parsing
+- `src/user_upload/jira/approval.clj` - Added ADF body support
+- `src/user_upload/workflow/processor.clj` - Fixed approved ticket upload flow
+- `src/user_upload/workflow/orchestrator.clj` - Fixed header mapping logic
+- `src/user_upload/parser/normalize.clj` - Fixed role synonym collision
+- `src/user_upload/auth/onepassword.clj` - Fixed env vars and JSON parsing
+- `src/user_upload/api/client.clj` - Fixed JSON request parameters
+- `src/user_upload/log.clj` - Removed redundant setup calls
+
+**Critical Fixes Applied:**
+1. **Jira attachment upload headers** - Fixed auth header extraction bug that caused upload failures
+2. **Approval flow data persistence** - Added JSON embedding in comments and ADF-aware parsing
+3. **Approved ticket processing** - Fixed Review status tickets to actually upload after approval
+4. **Header mapping with different order** - Fixed exact match mapping to handle any column order
+5. **Role header ambiguity** - Removed 'role' from job title synonyms to avoid conflicts
+6. **1Password CLI integration** - Fixed environment variable passing and JSON parsing
+7. **Backend API requests** - Changed from form-params to json-params for proper serialization
+8. **Logging performance** - Removed per-call setup overhead, standardized on Timbre
+
+**Validation:**
+- ✅ Attachment uploads now show correct filenames in Jira
+- ✅ Approval data persists through comment round-trips
+- ✅ Approved tickets complete full upload flow
+- ✅ Headers map correctly regardless of order
+- ✅ 'Role' unambiguously maps to user role field
+- ✅ 1Password CLI properly authenticates with token
+- ✅ API requests send valid JSON payloads
+- ✅ Logging performance improved significantly
+
+**Commit:** `git commit -m "Fix critical correctness bugs in user upload agent"`
+
+---
+
 ## Phase 6: Reporting & Error Handling
 
 ### Step 15: Result Reporting

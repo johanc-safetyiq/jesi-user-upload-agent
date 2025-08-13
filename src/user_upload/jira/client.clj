@@ -162,10 +162,10 @@
                                transition-id)
         payload (cond-> {:transition {:id (str actual-transition-id)}}
                   comment (assoc :update {:comment [{:add {:body comment}}]}))
-        endpoint (str "/issue/" issue-key "/transitions")
-        response (make-request :post endpoint {:body (json/generate-string payload)
-                                               :content-type :json})]
-    (:body response)))
+        endpoint (str "/issue/" issue-key "/transitions")]
+    ;; Use json-params for automatic JSON conversion
+    (make-request :post endpoint {:json-params payload
+                                  :content-type :json})))
 
 ;; Comment operations
 
@@ -279,10 +279,10 @@
   (let [;; Convert plain text to Atlassian Document Format
         adf-body (text-to-adf comment-body)
         payload {:body adf-body}
-        endpoint (str "/issue/" issue-key "/comment")
-        response (make-request :post endpoint {:body (json/generate-string payload)
-                                               :content-type :json})]
-    (:body response)))
+        endpoint (str "/issue/" issue-key "/comment")]
+    ;; Use json-params for automatic JSON conversion
+    (make-request :post endpoint {:json-params payload
+                                  :content-type :json})))
 
 ;; Attachment operations
 

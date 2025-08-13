@@ -46,22 +46,20 @@
         auth-hdrs (if (:skip-auth options)
                     {"Accept" "application/json"}
                     (dissoc (auth-headers) "Content-Type"))
-        ;; For :json-params requests, add :content-type :json
-        ;; For other requests, add Content-Type header manually
-        request-options (if (:json-params options)
-                          (-> options
-                              (dissoc :skip-auth)
-                              (merge {:headers auth-hdrs
-                                      :content-type :json
-                                      :throw-exceptions false
-                                      :as :json
-                                      :coerce :always}))
-                          (-> options
-                              (dissoc :skip-auth)
-                              (merge {:headers (assoc auth-hdrs "Content-Type" "application/json")
-                                      :throw-exceptions false
-                                      :as :json
-                                      :coerce :always})))]
+        ;; Build request options with proper ordering
+        clean-options (dissoc options :skip-auth)
+        request-options (merge
+                          {:headers auth-hdrs
+                           :throw-exceptions false
+                           :as :json
+                           :coerce :always}
+                          clean-options
+                          ;; Add content-type for json-params after merging
+                          (when (:json-params clean-options)
+                            {:content-type :json})
+                          ;; Add Content-Type header for non-json-params
+                          (when-not (:json-params clean-options)
+                            {:headers (assoc auth-hdrs "Content-Type" "application/json")}))]
     (log/info "Backend API request" {:method method :endpoint endpoint :base-url base-url})
     (try
       (let [response (case method

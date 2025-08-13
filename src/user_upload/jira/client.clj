@@ -51,20 +51,20 @@
         ;; Let clj-http handle it based on the request type
         base-headers {"Authorization" (get (auth-headers) "Authorization")
                       "Accept" "application/json"}
-        ;; For :json-params, add content-type json explicitly
-        ;; clj-http should override this if needed but this ensures it's set
-        request-options (if (:json-params options)
-                          (merge {:headers base-headers
-                                  :content-type :json
-                                  :throw-exceptions false
-                                  :as :json
-                                  :coerce :always}
-                                 options)
-                          (merge {:headers (assoc base-headers "Content-Type" "application/json")
-                                  :throw-exceptions false
-                                  :as :json
-                                  :coerce :always}
-                                 options))]
+        ;; Build request options with proper ordering
+        ;; Options should override defaults, not the other way around
+        request-options (merge
+                          {:headers base-headers
+                           :throw-exceptions false
+                           :as :json
+                           :coerce :always}
+                          options
+                          ;; Add content-type for json-params after merging
+                          (when (:json-params options)
+                            {:content-type :json})
+                          ;; Add Content-Type header for non-json-params
+                          (when-not (:json-params options)
+                            {:headers (assoc base-headers "Content-Type" "application/json")}))]
     (log/info "Jira API request" {:method method :endpoint endpoint})
     (try
       (let [response (case method

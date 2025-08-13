@@ -46,7 +46,7 @@
 
 ;; Approval request detection
 
-(defn- extract-text-from-adf
+(defn extract-text-from-adf
   "Extract plain text from ADF (Atlassian Document Format) structure.
    Returns the concatenated text content from all text nodes."
   [adf-content]
@@ -148,7 +148,7 @@
                                           :request-id (:id latest-request)
                                           :approval-id (:id approval-comment)})
               {:status :approved
-               :request-comment latest-request
+               :request-comment (assoc latest-request :adf-body (:body latest-request))
                :approval-comment approval-comment
                :message (format "Approved by %s after request %s" 
                                (get-in approval-comment [:author :displayName])
@@ -157,7 +157,7 @@
               (log/info "Pending approval" {:issue-key issue-key 
                                            :request-id (:id latest-request)})
               {:status :pending
-               :request-comment latest-request
+               :request-comment (assoc latest-request :adf-body (:body latest-request))
                :message (format "Pending approval for request %s" (:id latest-request))})))))
     (catch Exception e
       (log/error "Failed to check approval status" {:issue-key issue-key :error (.getMessage e)})

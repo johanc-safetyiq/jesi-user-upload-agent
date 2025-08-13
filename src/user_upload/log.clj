@@ -31,53 +31,42 @@
       :appenders {:println {:enabled? true
                             :fn (fn [data] (println (json-output-fn data)))}}})))
 
-;; Convenience logging functions that ensure setup has been called
+;; Convenience logging functions
 (defn info
   "Log an info message with optional data context."
   ([message] 
-   (setup-logging!)
    (timbre/info message))
   ([message data]
-   (setup-logging!)
    (timbre/info message data)))
 
 (defn warn
   "Log a warning message with optional data context."
   ([message]
-   (setup-logging!)
    (timbre/warn message))
   ([message data]
-   (setup-logging!)
    (timbre/warn message data)))
 
 (defn error
   "Log an error message with optional exception and data context."
   ([message]
-   (setup-logging!)
    (timbre/error message))
   ([message ex]
-   (setup-logging!)
    (timbre/error ex message))
   ([message ex data]
-   (setup-logging!)
    (timbre/error ex message data)))
 
 (defn debug
   "Log a debug message with optional data context."
   ([message]
-   (setup-logging!)
    (timbre/debug message))
   ([message data]
-   (setup-logging!)
    (timbre/debug message data)))
 
 (defn trace
   "Log a trace message with optional data context."
   ([message]
-   (setup-logging!)
    (timbre/trace message))
   ([message data]
-   (setup-logging!)
    (timbre/trace message data)))
 
 ;; Initialize logging when the namespace is loaded

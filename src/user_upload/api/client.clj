@@ -83,8 +83,7 @@
   (try
     (let [credentials {:email email :password password}
           response (make-request :post (base-api-url) "/passwords/authenticate"
-                                 {:form-params credentials
-                                  :content-type :json
+                                 {:json-params credentials
                                   :skip-auth true})]
       (if-let [token (get-in response [:body :token])]
         (do
@@ -149,8 +148,7 @@
   []
   (log/info "Searching users")
   (let [response (make-request :post (base-clj-api-url) "/users/search"
-                               {:form-params {}
-                                :content-type :json})]
+                               {:json-params {}})]
     (:body response)))
 
 (defn search-teams
@@ -159,8 +157,7 @@
   []
   (log/info "Searching teams")
   (let [response (make-request :post (base-clj-api-url) "/teams/search"
-                               {:form-params {}
-                                :content-type :json})]
+                               {:json-params {}})]
     (:body response)))
 
 ;; Create operations (v1)
@@ -187,8 +184,7 @@
     (throw (ex-info "Missing required teamIds" {:user-data user-data})))
   
   (let [response (make-request :post (base-api-url) "/users"
-                               {:form-params user-data
-                                :content-type :json})]
+                               {:json-params user-data})]
     (:body response)))
 
 (defn create-team
@@ -208,8 +204,7 @@
     (throw (ex-info "Missing required escalation levels" {:team-data team-data})))
   
   (let [response (make-request :post (base-api-url) "/teams"
-                               {:form-params team-data
-                                :content-type :json})]
+                               {:json-params team-data})]
     (:body response)))
 
 ;; Helper functions for common operations

@@ -6,7 +6,7 @@
    - Approval invalidation when files change
    - Integration with the processing workflow
    - Structured approval request generation"
-  (:require [clojure.tools.logging :as log]
+  (:require [user-upload.log :as log]
             [user-upload.jira.approval :as jira-approval]
             [user-upload.jira.client :as jira]
             [clojure.string :as str]
@@ -126,7 +126,11 @@
     (str approval-request-prefix "\n\n"
          "# USER UPLOAD APPROVAL REQUEST\n\n"
          "**Tenant Email:** " (or tenant-email (str "customersolutions+" tenant "@jesi.io")) "\n"
-         "**1Password Credentials:** " (if credentials-found "✓ Found" "✗ Not found") "\n\n"
+         "**1Password Credentials:** " (if credentials-found 
+                                         (if (:multiple-items-found extra-info)
+                                           (str "✓ Found (multiple items - using: " (:item-used extra-info) ")")
+                                           "✓ Found")
+                                         "✗ Not found") "\n\n"
          
          "# SUMMARY\n"
          "- **Users to create:** " user-count "\n"
@@ -154,27 +158,38 @@
                 mapping-section "\n\n"))
          
          "---\n"
+         "```json\n" (json/generate-string request-data) "\n```\n"
          "**To approve:** Reply with exactly 'approved' (case-insensitive)\n"
          "**To reject:** Reply with 'rejected' followed by a reason\n")))
+
+(defn- extract-codeblocks-from-adf
+  "Extract code block content from ADF structure."
+  [adf]
+  (letfn [(walk [n]
+            (cond
+              (and (map? n) (= "codeBlock" (:type n)))
+              (map :text (get-in n [:content]))
+
+              (map? n) (mapcat walk (:content n))
+              (sequential? n) (mapcat walk n)
+              :else []))]
+    (->> (walk adf) (remove str/blank?) vec)))
 
 (defn extract-approval-request-data
   "Extract structured data from an approval request comment.
    
    Args:
-     comment-body - Comment body containing approval request
+     comment-adf - Comment body in ADF format containing approval request
    
    Returns:
      Parsed approval request data map or nil if not found"
-  [comment-body]
+  [comment-adf]
   (try
-    (when (and comment-body (str/includes? comment-body approval-request-prefix))
-      (let [;; Extract JSON from code block - try both old and new formats
-            json-match (or (re-find #"\{code:json\}\n(.*?)\n\{code\}" comment-body)
-                          (re-find #"```\n(.*?)\n```" comment-body))
-            ;; Also check if the ADF format put it in a different structure
-            json-text (when json-match (second json-match))]
-        (when json-text
-          (json/parse-string json-text true))))
+    (when comment-adf
+      (some (fn [code]
+              (try (json/parse-string code true)
+                   (catch Exception _ nil)))
+            (extract-codeblocks-from-adf comment-adf)))
     (catch Exception e
       (log/warn "Failed to extract approval request data" {:error (.getMessage e)})
       nil)))
@@ -265,7 +280,7 @@
         :approved
         ;; For approved status, validate fingerprints
         (let [request-comment (:request-comment basic-approval)
-              request-data (extract-approval-request-data (:body request-comment))]
+              request-data (extract-approval-request-data (:adf-body request-comment))]
           
           (if-not request-data
             {:status :invalid

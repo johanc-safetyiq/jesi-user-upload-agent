@@ -7,7 +7,7 @@
    - Approval workflow management
    - User and team creation
    - Result aggregation and reporting"
-  (:require [clojure.tools.logging :as log]
+  (:require [user-upload.log :as log]
             [user-upload.auth.tenant :as tenant]
             [user-upload.auth.onepassword :as op]
             [user-upload.api.client :as api]
@@ -52,7 +52,10 @@
           (let [cred-result (op/get-tenant-credentials tenant-name email-template)]
             (if (:success cred-result)
               (do
-                (log/info "Retrieved credentials for tenant" {:tenant tenant-name :cached (:cached cred-result)})
+                (log/info "Retrieved credentials for tenant" {:tenant tenant-name 
+                                                             :cached (:cached cred-result)
+                                                             :multiple-items (:multiple-items-found cred-result)
+                                                             :item-used (:item-used cred-result)})
                 
                 ;; Attempt to authenticate with backend API
                 (let [login-result (api/login (:email cred-result) (:password cred-result))]
@@ -60,11 +63,15 @@
                     {:success true
                      :tenant tenant-name
                      :credentials {:email (:email cred-result)
-                                  :password "***hidden***"}}
+                                  :password "***hidden***"}
+                     :multiple-items-found (:multiple-items-found cred-result)
+                     :item-used (:item-used cred-result)}
                     {:success false 
+                     :tenant tenant-name  ; Include tenant in failure response
                      :error (str "Backend authentication failed: " (:error login-result))})))
               
               {:success false 
+               :tenant tenant-name  ; Include tenant in failure response
                :error (str "Failed to retrieve credentials: " (:error cred-result))})))))
     
     (catch Exception e
@@ -213,8 +220,8 @@
                          ;; Simple mode: exact match, no AI needed
                          (do
                            (log/info "Headers match expected fields exactly, using direct mapping")
-                           ;; Create mapping with string keys
-                           (into {} (map (fn [h e] [(str h) e]) headers expected-fields)))
+                           ;; Create identity-to-lower mapping for each header
+                           (into {} (map (fn [h] [(str h) (str/lower-case (str h))]) headers)))
                          
                          ;; Complex mode: use AI for mapping
                          (if use-ai?

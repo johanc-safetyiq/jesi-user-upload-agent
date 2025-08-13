@@ -7,7 +7,7 @@
    - Downloads and processes attachments
    - Manages tenant-specific authentication
    - Orchestrates the approval workflow"
-  (:require [clojure.tools.logging :as log]
+  (:require [user-upload.log :as log]
             [clj-http.client :as http]
             [user-upload.config :as config]
             [user-upload.jira.client :as jira]
@@ -152,8 +152,8 @@
             (case (:status approval-check)
               :approved
               (do
-                (log/info "Ticket approved, transitioning to Closed" {:ticket-key ticket-key})
-                ;; Extract tenant for completing the workflow
+                (log/info "Ticket approved, proceeding with upload" {:ticket-key ticket-key})
+                ;; Extract tenant and authenticate
                 (let [auth-result (orchestrator/extract-tenant-and-authenticate 
                                   ticket 
                                   "customersolutions+%s@jesi.io")]
@@ -163,18 +163,43 @@
                      :error (:error auth-result)
                      :summary (str "Failed to authenticate for " ticket-key ": " (:error auth-result))}
                     
-                    ;; Complete the workflow by transitioning to Done/Closed
-                    (do
-                      (try
-                        (jira/transition-issue ticket-key "Done" "User upload approved and processed")
-                        (catch Exception e
-                          (log/warn "Could not transition to Done, trying Closed" {:error (.getMessage e)})
-                          (jira/transition-issue ticket-key "Closed" "User upload approved and processed")))
-                      {:success true
-                       :ticket-key ticket-key
-                       :tenant (:tenant auth-result)
-                       :approval-status :approved
-                       :summary (str "Approved ticket " ticket-key " transitioned to Done")}))))
+                    ;; Process the attachments and upload users
+                    (let [attachments (get-in ticket [:fields :attachment] [])
+                          eligible-attachments (filter-eligible-attachments attachments)
+                          tenant (:tenant auth-result)]
+                      
+                      (if (empty? eligible-attachments)
+                        {:success false
+                         :ticket-key ticket-key
+                         :tenant tenant
+                         :error "No eligible attachments found"
+                         :summary (str "No CSV/Excel attachments found in " ticket-key)}
+                        
+                        ;; Process each attachment for upload
+                        (let [results (for [attachment eligible-attachments
+                                           :let [download-result (download-attachment attachment)]
+                                           :when (:success download-result)]
+                                       (orchestrator/process-attachment
+                                         (assoc attachment :content (:content download-result))
+                                         tenant
+                                         ticket-key
+                                         ticket
+                                         true))  ; credentials-found is true
+                              successful? (some :success results)]
+                          
+                          ;; Transition to Done/Closed after processing
+                          (when successful?
+                            (try
+                              (jira/transition-issue ticket-key "Done" "User upload approved and processed")
+                              (catch Exception _
+                                (jira/transition-issue ticket-key "Closed" "User upload approved and processed"))))
+                          
+                          {:success successful?
+                           :ticket-key ticket-key
+                           :tenant tenant
+                           :approval-status :approved
+                           :results results
+                           :summary (str "Approved & processed " (count results) " attachment(s) from " ticket-key)})))))
               
               :pending
               (do
@@ -213,10 +238,54 @@
                             ticket 
                             "customersolutions+%s@jesi.io")]
             (if-not (:success auth-result)
-              {:success false
-               :ticket-key ticket-key
-               :error (:error auth-result)
-               :summary (str "Failed to authenticate for " ticket-key ": " (:error auth-result))}
+              ;; Check if this is specifically a missing 1Password entry
+              (if (and (str/includes? (str (:error auth-result)) "No 1Password entry found")
+                      (:tenant auth-result))
+                ;; Handle missing 1Password entry - post comment and transition to Info Required
+                (do
+                  (log/warn "No 1Password entry found for tenant, requesting credentials" 
+                           {:ticket-key ticket-key :tenant (:tenant auth-result)})
+                  (try
+                    ;; Post comment to Jira
+                    (let [tenant (:tenant auth-result)
+                          expected-email (format "customersolutions+%s@jesi.io" tenant)
+                          comment-body (str "**Missing 1Password Credentials**\n\n"
+                                          "Unable to process this user upload request because credentials are not configured for this tenant.\n\n"
+                                          "**Tenant:** " tenant "\n"
+                                          "**Expected Email:** " expected-email "\n\n"
+                                          "**Action Required:**\n"
+                                          "1. Create a 1Password entry in the 'Customer Support (Site Registrations)' vault\n"
+                                          "2. Set the username to: " expected-email "\n"
+                                          "3. Set the password for this service account\n"
+                                          "4. Ensure the service account has appropriate permissions in the backend\n\n"
+                                          "Once credentials are configured, please set this ticket back to 'Open' status.")]
+                      (jira/add-comment ticket-key comment-body)
+                      
+                      ;; Transition to Info Required status
+                      (let [transitions (jira/get-transitions ticket-key)
+                            info-required-transition (first (filter #(= "Info Required" (get-in % [:to :name])) 
+                                                                  (:transitions transitions)))]
+                        (when info-required-transition
+                          (jira/transition-issue ticket-key (:id info-required-transition))))
+                      
+                      {:success false
+                       :ticket-key ticket-key
+                       :tenant tenant
+                       :error "Missing 1Password credentials"
+                       :summary (str "Transitioned " ticket-key " to Info Required - missing credentials for " tenant)})
+                    (catch Exception e
+                      (log/error e "Failed to update ticket with missing credentials info" 
+                                {:ticket-key ticket-key})
+                      {:success false
+                       :ticket-key ticket-key
+                       :error (:error auth-result)
+                       :summary (str "Failed to authenticate for " ticket-key ": " (:error auth-result))})))
+                
+                ;; Other authentication errors
+                {:success false
+                 :ticket-key ticket-key
+                 :error (:error auth-result)
+                 :summary (str "Failed to authenticate for " ticket-key ": " (:error auth-result))})
               
               ;; Step 3: Filter and process eligible attachments
               (let [tenant (:tenant auth-result)

@@ -9,7 +9,7 @@
   {"email" #{"email" "e-mail" "email address" "e-mail address" "user email" "login email"}
    "first name" #{"first name" "firstname" "first_name" "given name" "given_name" "fname"}
    "last name" #{"last name" "lastname" "last_name" "surname" "family name" "family_name" "lname"}
-   "job title" #{"job title" "jobtitle" "job_title" "title" "position" "role" "job role" "work title"}
+   "job title" #{"job title" "jobtitle" "job_title" "title" "position" "job role" "work title"}
    "mobile number" #{"mobile number" "mobile" "phone" "phone number" "cell phone" "mobile_number" "contact number"}
    "teams" #{"teams" "team" "team name" "team names" "group" "groups" "department" "departments"}
    "user role" #{"user role" "role" "user_role" "access role" "permission" "permissions" "user type" "account type"}})

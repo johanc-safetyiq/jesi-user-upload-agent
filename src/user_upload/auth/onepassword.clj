@@ -41,9 +41,9 @@
          :error "OP_SERVICE_ACCOUNT_TOKEN not set in environment or config"}
         
         ;; Try to list vaults to verify token works
-        ;; Pass the token as additional environment variable to the subprocess
-        (let [extra-env {"OP_SERVICE_ACCOUNT_TOKEN" token}
-              result (process/shell {:out :string :err :string :timeout 5000 :extra-env extra-env}
+        ;; Pass the token as environment variable to the subprocess
+        (let [env (merge (System/getenv) {"OP_SERVICE_ACCOUNT_TOKEN" token})
+              result (process/shell {:out :string :err :string :timeout 5000 :env env}
                                     "op" "vault" "list" "--format=json")]
           (if (zero? (:exit result))
             {:available true 
@@ -58,9 +58,11 @@
 (defn fetch-credentials-for-tenant
   "Fetch credentials for a specific tenant from 1Password.
    
-   Searches the 'Customer Support (Site Registrations)' vault for items that contain
-   the expected email pattern (customersolutions+<tenant>@jesi.io) in their username field.
-   If multiple matches are found, uses the most recently updated one.
+   Since 1Password CLI doesn't support searching by username field content,
+   we try multiple strategies:
+   1. Try exact match with tenant name
+   2. Try common variations (uppercase, with spaces)
+   3. List all items and check username fields for email match
    
    Args:
      tenant - The tenant name (e.g., 'elecnor')
@@ -93,100 +95,139 @@
          (do
            (log/info "Fetching credentials from 1Password for tenant:" tenant)
            (let [token (get-op-token)
-                 extra-env {"OP_SERVICE_ACCOUNT_TOKEN" token}
+                 env (merge (System/getenv) {"OP_SERVICE_ACCOUNT_TOKEN" token})
                  vault-name "Customer Support (Site Registrations)"
                  expected-email (format email-template tenant)
                  
-                 ;; List all items in the vault
-                 list-result (process/shell {:out :string :err :string :timeout default-timeout-ms :extra-env extra-env}
-                                           "op" "item" "list"
-                                           "--vault" vault-name
-                                           "--format" "json")
-                 {:keys [exit out err]} list-result]
+                 ;; Helper function to try getting an item by name
+                 try-get-item (fn [item-name]
+                               (let [result (process/shell 
+                                          {:out :string :err :string :timeout 5000 :env env}
+                                          "op" "item" "get" item-name
+                                          "--vault" vault-name
+                                          "--format" "json"
+                                          "--reveal")]
+                                 (when (zero? (:exit result))
+                                   (let [item (json/parse-string (:out result) true)
+                                         email (some->> item :fields 
+                                                       (some #(when (= "username" (:label %)) (:value %))))
+                                         password (some->> item :fields 
+                                                          (some #(when (= "password" (:label %)) (:value %))))]
+                                     (when (and email password 
+                                               (= (str/lower-case email) (str/lower-case expected-email)))
+                                       {:email email :password password :item-name item-name})))))
+                 
+                 ;; Try common variations of the tenant name
+                 variations [(str/lower-case tenant)  ; lowercase
+                           (str/upper-case tenant)  ; uppercase (like SQM)
+                           tenant                    ; as-is
+                           ;; Try with spaces for compound names
+                           (str/replace tenant #"([a-z])([A-Z])" "$1 $2")] ; camelCase to spaces
+                 
+                 ;; Try each variation
+                 direct-result (some try-get-item variations)]
              
-             (if (zero? exit)
-               ;; Successfully got the list of items
-               (let [items (json/parse-string out true)
-                     ;; Now get details for each item to check the username field
-                     items-with-details (atom [])]
-                 
-                 ;; Check each item's username field
-                 (doseq [item items]
-                   (try
-                     (let [detail-result (process/shell {:out :string :err :string :timeout 5000 :extra-env extra-env}
-                                                       "op" "item" "get" (:id item)
-                                                       "--vault" vault-name
-                                                       "--fields" "username"
-                                                       "--format" "json")]
-                       (when (zero? (:exit detail-result))
-                         (let [username (json/parse-string (:out detail-result) true)]
-                           (when (and username 
-                                    (string? username)
-                                    (= (str/lower-case username) (str/lower-case expected-email)))
-                             (swap! items-with-details conj item)))))
-                     (catch Exception e
-                       ;; Skip items that can't be retrieved
-                       nil)))
-                 
-                 (let [matching-items @items-with-details]
-                   (if (empty? matching-items)
-                     ;; No matching items found
-                     {:success false
-                      :error (format "No 1Password entry found for email '%s'" expected-email)}
-                     
-                     ;; Found matching items - get the most recent one if there are multiple
-                     (let [selected-item (if (> (count matching-items) 1)
-                                          (do
-                                            (log/warn "Multiple 1Password items found for tenant" 
-                                                     {:tenant tenant 
-                                                      :email expected-email
-                                                      :count (count matching-items)
-                                                      :items (map :title matching-items)})
-                                            ;; Sort by updated time and take the most recent
-                                            ;; Note: 1Password items have updated_at field
-                                            (first (sort-by :updated_at #(compare %2 %1) matching-items)))
-                                          (first matching-items))
-                           
-                           ;; Get the full credentials for the selected item
-                           item-result (process/shell {:out :string :err :string :timeout default-timeout-ms :extra-env extra-env}
-                                                     "op" "item" "get" (:id selected-item)
-                                                     "--vault" vault-name
-                                                     "--fields" "label=username,label=password"
-                                                     "--reveal")
-                           {:keys [exit out err]} item-result]
-                       
-                       (if (zero? exit)
-                         (let [output (str/trim out)
-                               parts (str/split output #"," 2)
-                               raw-email (when (>= (count parts) 1) (first parts))
-                               email (when raw-email 
-                                      (-> raw-email
-                                          str/trim
-                                          (str/replace #"^[\"']+" "")
-                                          (str/replace #"[\"']+$" "")
-                                          str/trim))
-                               password (when (>= (count parts) 2) (str/trim (second parts)))]
-                           (if (and email password (not (str/blank? email)) (not (str/blank? password)))
-                             (let [credentials {:email email :password password}]
-                               (swap! credentials-cache assoc tenant credentials)
-                               (log/info "Successfully fetched credentials for tenant" 
-                                        {:tenant tenant 
-                                         :item-title (:title selected-item)
-                                         :multiple-items (> (count matching-items) 1)})
-                               {:success true 
-                                :email email 
-                                :password password 
-                                :cached false
-                                :multiple-items-found (> (count matching-items) 1)
-                                :item-used (:title selected-item)})
-                             {:success false
-                              :error "Invalid credential format from 1Password"}))
-                         {:success false
-                          :error (format "Failed to get item details: %s" err)})))))
+             (if direct-result
+               ;; Found via direct lookup
+               (let [credentials {:email (:email direct-result) 
+                                 :password (:password direct-result)}]
+                 (swap! credentials-cache assoc tenant credentials)
+                 (log/info "Successfully fetched credentials for tenant via direct lookup" 
+                          {:tenant tenant :item-name (:item-name direct-result)})
+                 {:success true 
+                  :email (:email direct-result)
+                  :password (:password direct-result)
+                  :cached false
+                  :item-used (:item-name direct-result)})
                
-               ;; Failed to list items
-               {:success false
-                :error (format "Failed to list 1Password items: %s" err)})))))
+               ;; Direct lookup failed, need to search all items
+               ;; This is slower but handles cases where item titles don't match tenant names
+               (do
+                 (log/info "Direct lookup failed, searching all items for email match" 
+                          {:tenant tenant :expected-email expected-email})
+                 
+                 ;; List all items in the vault
+                 (let [list-result (process/shell 
+                                  {:out :string :err :string :timeout default-timeout-ms :env env}
+                                  "op" "item" "list"
+                                  "--vault" vault-name
+                                  "--format" "json")]
+                   
+                   (if (zero? (:exit list-result))
+                     (let [items (json/parse-string (:out list-result) true)
+                           ;; Check each item's username field
+                           matching-items (atom [])]
+                       
+                       (doseq [item items]
+                         (try
+                           (let [get-result (process/shell 
+                                          {:out :string :err :string :timeout 5000 :env env}
+                                          "op" "item" "get" (:id item)
+                                          "--vault" vault-name
+                                          "--format" "json")]
+                             (when (zero? (:exit get-result))
+                               (let [item-data (json/parse-string (:out get-result) true)
+                                     username (some->> item-data :fields 
+                                                      (some #(when (= "username" (:label %)) (:value %))))]
+                                 (when (and username
+                                           (= (str/lower-case username) (str/lower-case expected-email)))
+                                   (swap! matching-items conj item)))))
+                           (catch Exception e
+                             ;; Skip items that can't be retrieved
+                             nil)))
+                       
+                       (let [matches @matching-items]
+                         (if (empty? matches)
+                           {:success false
+                            :error (format "No 1Password entry found for email '%s'" expected-email)}
+                           
+                           ;; Found matching items - use the most recent one if multiple
+                           (let [selected-item (if (> (count matches) 1)
+                                              (do
+                                                (log/warn "Multiple 1Password items found for tenant" 
+                                                         {:tenant tenant 
+                                                          :email expected-email
+                                                          :count (count matches)
+                                                          :items (map :title matches)})
+                                                ;; Sort by updated time and take the most recent
+                                                (first (sort-by :updated_at #(compare %2 %1) matches)))
+                                              (first matches))
+                                 
+                                 ;; Get full credentials for the selected item
+                                 item-result (process/shell 
+                                            {:out :string :err :string :timeout default-timeout-ms :env env}
+                                            "op" "item" "get" (:id selected-item)
+                                            "--vault" vault-name
+                                            "--format" "json"
+                                            "--reveal")]
+                             
+                             (if (zero? (:exit item-result))
+                               (let [item (json/parse-string (:out item-result) true)
+                                     email (some->> item :fields 
+                                                   (some #(when (= "username" (:label %)) (:value %))))
+                                     password (some->> item :fields 
+                                                      (some #(when (= "password" (:label %)) (:value %))))]
+                                 
+                                 (if (and email password (not (str/blank? email)) (not (str/blank? password)))
+                                   (let [credentials {:email email :password password}]
+                                     (swap! credentials-cache assoc tenant credentials)
+                                     (log/info "Successfully fetched credentials for tenant via search" 
+                                              {:tenant tenant 
+                                               :item-title (:title selected-item)
+                                               :multiple-items (> (count matches) 1)})
+                                     {:success true 
+                                      :email email 
+                                      :password password 
+                                      :cached false
+                                      :multiple-items-found (> (count matches) 1)
+                                      :item-used (:title selected-item)})
+                                   {:success false
+                                    :error "Invalid credential format from 1Password"}))
+                               {:success false
+                                :error (format "Failed to get item details: %s" (:err item-result))}))))
+                     
+                     {:success false
+                      :error (format "Failed to list 1Password items: %s" (:err list-result))})))))))))
      
      (catch Exception e
        (log/error e "Error fetching credentials from 1Password for tenant:" tenant)

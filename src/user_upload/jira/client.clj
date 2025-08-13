@@ -305,41 +305,37 @@
     (throw (ex-info "Content is required" {:filename filename})))
   
   (let [url (str (base-url) "/issue/" issue-key "/attachments")
-        auth-header (first (auth-headers))
+        headers (-> (auth-headers)                         ; use the whole map
+                    (dissoc "Content-Type" "Accept")       ; let clj-http set multipart headers
+                    (assoc "X-Atlassian-Token" "no-check"))
         ;; Create a temporary directory and file with the exact filename
         temp-dir (java.nio.file.Files/createTempDirectory "jira-upload" (into-array java.nio.file.attribute.FileAttribute []))
-        temp-file (java.io.File. (.toFile temp-dir) filename)
-        _ (.deleteOnExit temp-file)
-        _ (.deleteOnExit (.toFile temp-dir))
-        _ (with-open [fos (java.io.FileOutputStream. temp-file)]
-            (.write fos content))
-        
-        ;; Jira requires multipart/form-data for attachments
-        response (try
-                  (http/post url {:headers {"Authorization" (second auth-header)
-                                           "X-Atlassian-Token" "no-check"}
-                                 :multipart [{:name "file"
-                                            :content temp-file}]
-                                 :throw-exceptions false
-                                 :as :json})
-                  (finally
-                    ;; Clean up temp file and directory
-                    (.delete temp-file)
-                    (java.nio.file.Files/deleteIfExists temp-dir)))]
-    
-    (if (< (:status response) 400)
-      (do
-        (log/info "Attachment uploaded successfully" 
-                 {:issue-key issue-key :filename filename :status (:status response)})
-        (:body response))
-      (do
-        (log/error "Failed to upload attachment" 
-                  {:issue-key issue-key :filename filename 
-                   :status (:status response) :body (:body response)})
-        (throw (ex-info "Failed to upload attachment"
-                        {:status (:status response)
-                         :body (:body response)
-                         :filename filename}))))))
+        temp-file (java.io.File. (.toFile temp-dir) filename)]
+    (try
+      (with-open [fos (java.io.FileOutputStream. temp-file)]
+        (.write fos content))
+      (let [response (http/post url {:headers headers
+                                     :multipart [{:name "file"
+                                                  :content temp-file
+                                                  :filename filename}]
+                                     :as :json
+                                     :throw-exceptions false})]
+        (if (< (:status response) 400)
+          (do
+            (log/info "Attachment uploaded successfully" 
+                     {:issue-key issue-key :filename filename :status (:status response)})
+            (:body response))
+          (do
+            (log/error "Failed to upload attachment" 
+                      {:issue-key issue-key :filename filename 
+                       :status (:status response) :body (:body response)})
+            (throw (ex-info "Failed to upload attachment"
+                            {:status (:status response)
+                             :body (:body response)
+                             :filename filename})))))
+      (finally
+        (.delete temp-file)
+        (java.nio.file.Files/deleteIfExists temp-dir)))))
 
 ;; Utility functions
 

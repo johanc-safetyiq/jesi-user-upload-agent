@@ -33,8 +33,7 @@
   []
   (if-let [token @auth-token]
     {"Authorization" token
-     "Accept" "application/json"
-     "Content-Type" "application/json"}
+     "Accept" "application/json"}
     (throw (ex-info "No authentication token available. Please login first." {}))))
 
 ;; Core request helper
@@ -43,9 +42,13 @@
   "Make an authenticated request to backend API with error handling."
   [method base-url endpoint & [options]]
   (let [url (str base-url endpoint)
-        headers (if (:skip-auth options)
-                  {"Accept" "application/json"}
-                  (auth-headers))
+        base-headers (if (:skip-auth options)
+                       {"Accept" "application/json"}
+                       (auth-headers))
+        ;; When using :json-params, don't set Content-Type header
+        headers (if (:json-params options)
+                  (dissoc base-headers "Content-Type")
+                  base-headers)
         request-options (-> options
                             (dissoc :skip-auth)
                             (merge {:headers headers

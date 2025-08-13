@@ -30,8 +30,7 @@
     (when (or (str/blank? email) (str/blank? api-token))
       (throw (ex-info "Missing Jira credentials" {:email email :api-token (when api-token "***")})))
     {"Authorization" (encode-basic-auth email api-token)
-     "Accept" "application/json"
-     "Content-Type" "application/json"}))
+     "Accept" "application/json"}))
 
 (defn- base-url
   "Generate base URL for Jira API requests."
@@ -48,7 +47,12 @@
   "Make an authenticated request to Jira API with error handling."
   [method endpoint & [options]]
   (let [url (str (base-url) endpoint)
-        request-options (merge {:headers (auth-headers)
+        ;; When using :json-params, don't set Content-Type header
+        base-headers (auth-headers)
+        headers (if (:json-params options)
+                  (dissoc base-headers "Content-Type")
+                  base-headers)
+        request-options (merge {:headers headers
                                 :throw-exceptions false
                                 :as :json
                                 :coerce :always}

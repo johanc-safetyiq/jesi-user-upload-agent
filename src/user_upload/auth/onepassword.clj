@@ -101,28 +101,43 @@
                  
                  ;; Helper function to try getting an item by name
                  try-get-item (fn [item-name]
-                               (let [result (process/shell 
-                                          {:out :string :err :string :timeout 5000 :env env}
-                                          "op" "item" "get" item-name
-                                          "--vault" vault-name
-                                          "--format" "json"
-                                          "--reveal")]
-                                 (when (zero? (:exit result))
-                                   (let [item (json/parse-string (:out result) true)
-                                         email (some->> item :fields 
-                                                       (some #(when (= "username" (:label %)) (:value %))))
-                                         password (some->> item :fields 
-                                                          (some #(when (= "password" (:label %)) (:value %))))]
-                                     (when (and email password 
-                                               (= (str/lower-case email) (str/lower-case expected-email)))
-                                       {:email email :password password :item-name item-name})))))
+                               (try
+                                 (let [result (process/shell 
+                                            {:out :string :err :string :timeout 5000 :env env}
+                                            "op" "item" "get" item-name
+                                            "--vault" vault-name
+                                            "--format" "json"
+                                            "--reveal")]
+                                   (when (zero? (:exit result))
+                                     (let [item (json/parse-string (:out result) true)
+                                           email (some->> item :fields 
+                                                         (some #(when (or (= "username" (:label %))
+                                                                         (= "username" (:id %))) 
+                                                                 (:value %))))
+                                           password (some->> item :fields 
+                                                            (some #(when (or (= "password" (:label %))
+                                                                           (= "password" (:id %))) 
+                                                                    (:value %))))]
+                                       (when (and email password 
+                                                 (= (str/lower-case email) (str/lower-case expected-email)))
+                                         {:email email :password password :item-name item-name}))))
+                                 (catch Exception e
+                                   ;; Item not found, return nil
+                                   nil)))
                  
                  ;; Try common variations of the tenant name
                  variations [(str/lower-case tenant)  ; lowercase
                            (str/upper-case tenant)  ; uppercase (like SQM)
                            tenant                    ; as-is
                            ;; Try with spaces for compound names
-                           (str/replace tenant #"([a-z])([A-Z])" "$1 $2")] ; camelCase to spaces
+                           (str/replace tenant #"([a-z])([A-Z])" "$1 $2") ; camelCase to spaces
+                           ;; Try the email itself as the item name
+                           expected-email
+                           ;; Try without domain
+                           (str "customersolutions+" tenant)
+                           ;; Try with hyphens
+                           (str/replace tenant #"_" "-")
+                           (str/replace tenant #"-" "_")]
                  
                  ;; Try each variation
                  direct-result (some try-get-item variations)]
@@ -143,11 +158,20 @@
                ;; Direct lookup failed, need to search all items
                ;; This is slower but handles cases where item titles don't match tenant names
                (do
-                 (log/info "Direct lookup failed, searching all items for email match" 
-                          {:tenant tenant :expected-email expected-email})
+                 (log/warn "Direct lookup failed for all variations" 
+                          {:tenant tenant 
+                           :expected-email expected-email
+                           :tried-variations (take 5 variations)})
                  
-                 ;; List all items in the vault
-                 (let [list-result (process/shell 
+                 ;; For now, skip the expensive full search and return not found
+                 ;; The full search would require fetching every item individually which is too slow
+                 {:success false
+                  :error (format "No 1Password entry found for tenant '%s' (email: %s). Please ensure the item exists in the 'Customer Support (Site Registrations)' vault with one of these names: %s" 
+                                tenant 
+                                expected-email
+                                (str/join ", " (take 5 variations)))}
+                 
+                 #_(let [list-result (process/shell 
                                   {:out :string :err :string :timeout default-timeout-ms :env env}
                                   "op" "item" "list"
                                   "--vault" vault-name

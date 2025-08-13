@@ -199,7 +199,7 @@
                            :tenant tenant
                            :approval-status :approved
                            :results results
-                           :summary (str "Approved & processed " (count results) " attachment(s) from " ticket-key)})))))))
+                           :summary (str "Approved & processed " (count results) " attachment(s) from " ticket-key)})))))
               
               :pending
               (do
@@ -216,7 +216,7 @@
                 {:success false
                  :ticket-key ticket-key
                  :error (str "Unexpected approval state: " (:message approval-check))
-                 :summary (str "Ticket " ticket-key " in Review but " (:message approval-check))}))))
+                 :summary (str "Ticket " ticket-key " in Review but " (:message approval-check))})))))
         
         ;; Not in Review status - process normally
         (let [attachments (get-in ticket [:fields :attachment] [])

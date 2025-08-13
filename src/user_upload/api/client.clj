@@ -42,24 +42,29 @@
   "Make an authenticated request to backend API with error handling."
   [method base-url endpoint & [options]]
   (let [url (str base-url endpoint)
-        ;; Build base headers without Content-Type
-        auth-hdrs (if (:skip-auth options)
-                    {"Accept" "application/json"}
-                    (dissoc (auth-headers) "Content-Type"))
-        ;; Build request options with proper ordering
+        ;; Build base headers  
+        auth-hdrs (merge
+                    (if (:skip-auth options)
+                      {"Accept" "application/json"}
+                      (auth-headers))
+                    ;; Add Content-Type for POST/PUT requests with body
+                    (when (and (#{:post :put} method)
+                              (or (:body options) (:json-params options)))
+                      {"Content-Type" "application/json"}))
+        ;; Convert json-params to body with JSON encoding
+        ;; clj-http 3.12.3 doesn't properly support json-params
         clean-options (dissoc options :skip-auth)
+        converted-options (if (:json-params clean-options)
+                           (-> clean-options
+                               (dissoc :json-params)
+                               (assoc :body (json/generate-string (:json-params clean-options))))
+                           clean-options)
         request-options (merge
                           {:headers auth-hdrs
                            :throw-exceptions false
                            :as :json
                            :coerce :always}
-                          clean-options
-                          ;; Add content-type for json-params after merging
-                          (when (:json-params clean-options)
-                            {:content-type :json})
-                          ;; Add Content-Type header for non-json-params
-                          (when-not (:json-params clean-options)
-                            {:headers (assoc auth-hdrs "Content-Type" "application/json")}))]
+                          converted-options)]
     (log/info "Backend API request" {:method method :endpoint endpoint :base-url base-url})
     (try
       (let [response (case method

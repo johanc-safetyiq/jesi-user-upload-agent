@@ -47,25 +47,26 @@
   "Make an authenticated request to Jira API with error handling."
   [method endpoint & [options]]
   (let [url (str (base-url) endpoint)
-        ;; Don't include Content-Type in base headers at all
-        ;; Let clj-http handle it based on the request type
-        base-headers {"Authorization" (get (auth-headers) "Authorization")
-                      "Accept" "application/json"}
-        ;; Build request options with proper ordering
-        ;; Options should override defaults, not the other way around
+        base-headers (merge
+                       {"Authorization" (get (auth-headers) "Authorization")
+                        "Accept" "application/json"}
+                       ;; Add Content-Type for POST/PUT requests with body
+                       (when (and (#{:post :put} method)
+                                 (or (:body options) (:json-params options)))
+                         {"Content-Type" "application/json"}))
+        ;; Convert json-params to body with JSON encoding
+        ;; clj-http 3.12.3 doesn't properly support json-params
+        converted-options (if (:json-params options)
+                           (-> options
+                               (dissoc :json-params)
+                               (assoc :body (json/generate-string (:json-params options))))
+                           options)
         request-options (merge
                           {:headers base-headers
                            :throw-exceptions false
                            :as :json
                            :coerce :always}
-                          options
-                          ;; Add content-type for json-params after merging
-                          (when (:json-params options)
-                            {:content-type :json})
-                          ;; Add Content-Type header for non-json-params
-                          (when-not (:json-params options)
-                            {:headers (assoc base-headers "Content-Type" "application/json")}))]
-    (log/info "Jira API request" {:method method :endpoint endpoint})
+                          converted-options)]
     (try
       (let [response (case method
                        :get (http/get url request-options)
@@ -176,7 +177,7 @@
         payload (cond-> {:transition {:id (str actual-transition-id)}}
                   comment (assoc :update {:comment [{:add {:body comment}}]}))
         endpoint (str "/issue/" issue-key "/transitions")]
-    ;; Use json-params for automatic JSON conversion
+    ;; Use json-params which will be converted to :body with JSON encoding
     (make-request :post endpoint {:json-params payload})))
 
 ;; Comment operations
@@ -290,9 +291,10 @@
     (throw (ex-info "Comment body is required" {:comment-body comment-body})))
   (let [;; Convert plain text to Atlassian Document Format
         adf-body (text-to-adf comment-body)
+        ;; Jira API expects the body wrapped in a 'body' key for comments
         payload {:body adf-body}
         endpoint (str "/issue/" issue-key "/comment")]
-    ;; Use json-params for automatic JSON conversion
+    ;; Use json-params which will be converted to :body with JSON encoding
     (make-request :post endpoint {:json-params payload})))
 
 ;; Attachment operations

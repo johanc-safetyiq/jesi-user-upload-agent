@@ -1,0 +1,23 @@
+{:jira {:email #env "JIRA_EMAIL"
+        :api-token #env "JIRA_API_TOKEN"
+        :domain #env "JIRA_DOMAIN"
+        :bot-account-id #env "JIRA_BOT_ACCOUNT_ID"
+        :bot-account-name #env "JIRA_BOT_ACCOUNT_NAME"
+        :custom-jql #env "UPLOAD_JQL"  ;; Optional: override entire JQL
+        :use-text-search true           ;; Use text search instead of labels
+        :search-terms ["user upload" "bulk upload" "import users"]}
+
+ :api {:base-url #env "BASE_API_URL"
+       :base-clj-url #env "BASE_CLJ_API_URL"}
+
+ :ai {:anthropic-api-key #env "ANTHROPIC_API_KEY"}
+
+ ;; 1Password service account token for fetching tenant credentials
+ :op-service-account-token #env "OP_SERVICE_ACCOUNT_TOKEN"
+
+ ;; Authentication is per-tenant, fetched from 1Password based on ticket context
+ ;; Format: customersolutions+<tenant>@jesi.io
+
+ :keywords ["user" "upload" "bulk"]
+
+ :log-level #or [#env "LOG_LEVEL" :info]}

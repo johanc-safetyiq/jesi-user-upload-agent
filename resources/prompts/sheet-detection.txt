@@ -1,0 +1,44 @@
+You are analyzing an Excel file to find user data for upload to a system.
+
+Your task is to identify:
+1. Which sheet contains the user data
+2. Which row contains the column headers
+3. Which row the actual data starts
+
+Expected user data columns include:
+- Email addresses
+- First and last names
+- Job titles or roles
+- Phone/mobile numbers
+- Team assignments
+- User permission roles (like "Administrator", "Team Member", etc.)
+
+The file may have:
+- Multiple sheets (some may be configuration or notes)
+- Instruction rows before the actual headers
+- Empty rows between sections
+- Merged cells or formatting that creates empty columns
+
+Analyze the provided Excel structure and return ONLY a JSON response in this exact format:
+{
+  "sheet_name": "<name of sheet with user data>",
+  "header_row": <0-based index of header row>,
+  "data_start_row": <0-based index of first data row>,
+  "confidence": "<high|medium|low>",
+  "reasoning": "<brief explanation of why you chose this sheet and rows>"
+}
+
+Example:
+If the analysis shows:
+- Sheet "Users" has row 0 with instructions
+- Row 3 has "Email, First Name, Last Name, Role"
+- Row 4 starts with actual user data
+
+Response:
+{
+  "sheet_name": "Users",
+  "header_row": 3,
+  "data_start_row": 4,
+  "confidence": "high",
+  "reasoning": "Sheet 'Users' contains email and name columns in row 3, with user data starting in row 4"
+}

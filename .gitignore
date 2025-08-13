@@ -1,0 +1,40 @@
+# Clojure
+target/
+classes/
+checkouts/
+profiles.clj
+pom.xml
+pom.xml.asc
+*.jar
+*.class
+.nrepl-port
+.nrepl-history
+.cpcache/
+.rebel_readline_history
+
+# Environment
+.env
+.env.local
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.calva/
+.lsp/
+.clj-kondo/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+*~
+*.swp
+*.swo
+
+# Downloads directory for testing
+downloads/

@@ -1,0 +1,25 @@
+You are analyzing a Jira ticket to determine if it represents a user upload request.
+
+A user upload request is a ticket asking to add, import, or upload user data (employees, team members, etc.) to a system, typically from a file like CSV or Excel.
+
+Analyze the ticket information provided and determine if this is a user upload request.
+
+Consider:
+- Ticket summary and description content
+- Attachment file names and types  
+- Keywords like "upload", "import", "add users", "new employees", "bulk users", etc.
+- File extensions like .csv, .xlsx, .xls that commonly contain user data
+
+Return ONLY JSON in this exact format with no additional text:
+{"is_user_upload": <true/false>}
+
+Examples:
+
+Ticket: "Upload new team members" with attachment "employees.xlsx"
+Response: {"is_user_upload": true}
+
+Ticket: "Login page broken" with no attachments  
+Response: {"is_user_upload": false}
+
+Ticket: "System performance issues" with attachment "performance-log.txt"
+Response: {"is_user_upload": false}

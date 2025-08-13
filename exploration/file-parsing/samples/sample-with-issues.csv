@@ -1,0 +1,7 @@
+email,first name,last name,job title,mobile number,teams,user role
+john.doe@company.com,John,Doe,Software Engineer,+1234567890,Engineering|Development,TEAM MEMBER
+invalid-email,Jane,Smith,Team Lead,,Engineering,MANAGER
+bob.wilson@company.com,Bob,Wilson,Project Manager,+1234567891,Management|Engineering,INVALID_ROLE
+,Alice,Brown,Quality Assurance,0,QA|Testing,TEAM MEMBER
+duplicate@company.com,Charlie,Davis,System Administrator,+1234567892,IT|Infrastructure,COMPANY ADMINISTRATOR
+duplicate@company.com,David,Miller,DevOps Engineer,+1234567893,IT|DevOps,TEAM MEMBER

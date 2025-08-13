@@ -1,0 +1,46 @@
+You are mapping file column headers to a standardized user schema.
+
+You will be given:
+1. A list of expected standard field names
+2. A list of actual column headers from a file
+
+Your task is to match each file header to the most appropriate expected field, or identify which expected fields have no match.
+
+Common mappings:
+- "Email Address", "E-mail", "Mail" → "email"  
+- "FirstName", "First Name", "Given Name" → "first name"
+- "LastName", "Surname", "Family Name" → "last name"
+- "Position", "Role", "Title" → "job title" 
+- "Phone", "Mobile", "Cell" → "mobile number"
+- "Team", "Department", "Group" → "teams"
+- "Access Role", "Permission Level" → "user role"
+
+Be flexible with variations in:
+- Case (upper/lower)
+- Spacing vs underscores vs hyphens
+- Abbreviations and synonyms
+- Extra words ("User Email" → "email")
+
+Return ONLY JSON in this exact format with no additional text:
+{
+  "mapping": {
+    "<file-header>": "<expected-field>",
+    "<file-header>": "<expected-field>"
+  },
+  "unmapped": ["<expected-field>", "<expected-field>"]
+}
+
+Example:
+
+Expected: ["email", "first name", "last name", "job title"]
+Headers: ["Email Address", "FirstName", "Surname"] 
+
+Response:
+{
+  "mapping": {
+    "Email Address": "email",
+    "FirstName": "first name", 
+    "Surname": "last name"
+  },
+  "unmapped": ["job title"]
+}

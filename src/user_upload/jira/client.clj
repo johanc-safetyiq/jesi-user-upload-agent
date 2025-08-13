@@ -50,7 +50,8 @@
   (let [url (str (base-url) endpoint)
         request-options (merge {:headers (auth-headers)
                                 :throw-exceptions false
-                                :as :json}
+                                :as :json
+                                :coerce :always}
                                options)]
     (log/info "Jira API request" {:method method :endpoint endpoint})
     (try
@@ -164,8 +165,7 @@
                   comment (assoc :update {:comment [{:add {:body comment}}]}))
         endpoint (str "/issue/" issue-key "/transitions")]
     ;; Use json-params for automatic JSON conversion
-    (make-request :post endpoint {:json-params payload
-                                  :content-type :json})))
+    (make-request :post endpoint {:json-params payload})))
 
 ;; Comment operations
 
@@ -281,8 +281,7 @@
         payload {:body adf-body}
         endpoint (str "/issue/" issue-key "/comment")]
     ;; Use json-params for automatic JSON conversion
-    (make-request :post endpoint {:json-params payload
-                                  :content-type :json})))
+    (make-request :post endpoint {:json-params payload})))
 
 ;; Attachment operations
 

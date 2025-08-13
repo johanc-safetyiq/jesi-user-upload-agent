@@ -44,14 +44,14 @@
   [method base-url endpoint & [options]]
   (let [url (str base-url endpoint)
         headers (if (:skip-auth options)
-                  {"Accept" "application/json"
-                   "Content-Type" "application/json"}
+                  {"Accept" "application/json"}
                   (auth-headers))
         request-options (-> options
                             (dissoc :skip-auth)
                             (merge {:headers headers
                                     :throw-exceptions false
-                                    :as :json}))]
+                                    :as :json
+                                    :coerce :always}))]
     (log/info "Backend API request" {:method method :endpoint endpoint :base-url base-url})
     (try
       (let [response (case method

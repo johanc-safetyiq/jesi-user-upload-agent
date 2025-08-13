@@ -148,9 +148,11 @@
       (if (= ticket-status "Review")
         (do
           (log/info "Ticket is in Review status, checking for approval only" {:ticket-key ticket-key})
-          (let [approval-check (approval/check-approval-status ticket-key)]
-            (case (:status approval-check)
-              :approved
+          (let [approval-check (approval/check-approval-status ticket-key)
+                approval-status (:status approval-check)
+                _ (log/info "Approval check result" {:status approval-status :type (type approval-status)})]
+            (cond
+              (= approval-status :approved)
               (do
                 (log/info "Ticket approved, proceeding with upload" {:ticket-key ticket-key})
                 ;; Extract tenant and authenticate
@@ -199,9 +201,9 @@
                            :tenant tenant
                            :approval-status :approved
                            :results results
-                           :summary (str "Approved & processed " (count results) " attachment(s) from " ticket-key)})))))
+                           :summary (str "Approved & processed " (count results) " attachment(s) from " ticket-key)}))))
               
-              :pending
+              (= approval-status :pending)
               (do
                 (log/info "Ticket still pending approval, skipping" {:ticket-key ticket-key})
                 {:success true
@@ -210,13 +212,13 @@
                  :skipped true
                  :summary (str "Skipped " ticket-key " - waiting for approval")})
               
-              ;; :no-request or :error
+              :else ;; :no-request or :error
               (do
                 (log/warn "Unexpected state for Review ticket" {:ticket-key ticket-key :approval-status (:status approval-check)})
                 {:success false
                  :ticket-key ticket-key
                  :error (str "Unexpected approval state: " (:message approval-check))
-                 :summary (str "Ticket " ticket-key " in Review but " (:message approval-check))})))))
+                 :summary (str "Ticket " ticket-key " in Review but " (:message approval-check))}))))))
         
         ;; Not in Review status - process normally
         (let [attachments (get-in ticket [:fields :attachment] [])
@@ -350,7 +352,7 @@
                        :tenant tenant
                        :results results
                        :summary (str "Processed " ticket-key " (" tenant "): "
-                                    successful-count "/" total-count " attachments succeeded")}))))))))
+                                    successful-count "/" total-count " attachments succeeded")})))))))))
       
       (catch Exception e
         (log/error e "Error processing ticket" {:ticket-key ticket-key})

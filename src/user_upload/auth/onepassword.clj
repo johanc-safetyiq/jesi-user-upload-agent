@@ -42,7 +42,7 @@
         
         ;; Try to list vaults to verify token works
         ;; Pass the token as environment variable to the subprocess
-        (let [env (merge (System/getenv) {"OP_SERVICE_ACCOUNT_TOKEN" token})
+        (let [env (merge (into {} (System/getenv)) {"OP_SERVICE_ACCOUNT_TOKEN" token})
               result (process/shell {:out :string :err :string :timeout 5000 :env env}
                                     "op" "vault" "list" "--format=json")]
           (if (zero? (:exit result))
@@ -95,7 +95,7 @@
          (do
            (log/info "Fetching credentials from 1Password for tenant:" tenant)
            (let [token (get-op-token)
-                 env (merge (System/getenv) {"OP_SERVICE_ACCOUNT_TOKEN" token})
+                 env (merge (into {} (System/getenv)) {"OP_SERVICE_ACCOUNT_TOKEN" token})
                  vault-name "Customer Support (Site Registrations)"
                  expected-email (format email-template tenant)
                  

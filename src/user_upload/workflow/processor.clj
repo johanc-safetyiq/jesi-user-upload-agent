@@ -199,7 +199,7 @@
                            :tenant tenant
                            :approval-status :approved
                            :results results
-                           :summary (str "Approved & processed " (count results) " attachment(s) from " ticket-key)})))))
+                           :summary (str "Approved & processed " (count results) " attachment(s) from " ticket-key)})))))))
               
               :pending
               (do
@@ -262,7 +262,7 @@
                       (jira/add-comment ticket-key comment-body)
                       
                       ;; Transition to Info Required status
-                      (let [transitions (jira/get-transitions ticket-key)
+                      (let [transitions (jira/get-issue-transitions ticket-key)
                             info-required-transition (first (filter #(= "Info Required" (get-in % [:to :name])) 
                                                                   (:transitions transitions)))]
                         (when info-required-transition
@@ -350,7 +350,7 @@
                        :tenant tenant
                        :results results
                        :summary (str "Processed " ticket-key " (" tenant "): "
-                                    successful-count "/" total-count " attachments succeeded")})))))))))
+                                    successful-count "/" total-count " attachments succeeded")}))))))))
       
       (catch Exception e
         (log/error e "Error processing ticket" {:ticket-key ticket-key})

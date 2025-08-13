@@ -127,8 +127,8 @@
          "# USER UPLOAD APPROVAL REQUEST\n\n"
          "**Tenant Email:** " (or tenant-email (str "customersolutions+" tenant "@jesi.io")) "\n"
          "**1Password Credentials:** " (if credentials-found 
-                                         (if (:multiple-items-found extra-info)
-                                           (str "✓ Found (multiple items - using: " (:item-used extra-info) ")")
+                                         (if (:multiple-items-found request-data)
+                                           (str "✓ Found (multiple items - using: " (:item-used request-data) ")")
                                            "✓ Found")
                                          "✗ Not found") "\n\n"
          

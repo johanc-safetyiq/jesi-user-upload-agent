@@ -44,24 +44,41 @@
      Map with :method :heuristic and :is-user-upload boolean"
   [ticket attachments]
   (let [{:keys [summary description]} ticket
+        ;; Check for customersolutions email which is a strong indicator
+        has-customersolutions? (when description
+                                (str/includes? (str/lower-case description) "customersolutions+"))
         has-keywords? (or (contains-upload-keywords? summary)
                           (contains-upload-keywords? description))
         has-upload-files? (contains-upload-file-types? attachments)
         
-        ;; Consider it a user upload if it has relevant keywords OR upload file types
-        is-user-upload (or has-keywords? has-upload-files?)]
+        ;; More intelligent check:
+        ;; - If has customersolutions email, it's likely a user upload
+        ;; - If has CSV/Excel files, it's likely a user upload  
+        ;; - If only has keywords but no files and no customersolutions, be more cautious
+        is-user-upload (or has-customersolutions?
+                          has-upload-files?
+                          ;; Only accept keyword match if it's strong (e.g., "user upload", "bulk users")
+                          (and has-keywords?
+                               (or (str/includes? (str/lower-case (str summary " " description)) "user upload")
+                                   (str/includes? (str/lower-case (str summary " " description)) "bulk user")
+                                   (str/includes? (str/lower-case (str summary " " description)) "add user")
+                                   (str/includes? (str/lower-case (str summary " " description)) "new user")
+                                   (str/includes? (str/lower-case (str summary " " description)) "onboard"))))]
     
-    (log/debug (format "Heuristic intent check for %s: keywords=%s files=%s -> %s"
-                       (:key ticket) has-keywords? has-upload-files? is-user-upload))
+    (log/debug (format "Heuristic intent check for %s: keywords=%s files=%s customersolutions=%s -> %s"
+                       (:key ticket) has-keywords? has-upload-files? has-customersolutions? is-user-upload))
     
     {:method :heuristic
      :is-user-upload is-user-upload
      :confidence (cond
+                   has-customersolutions? :high
+                   has-upload-files? :high
                    (and has-keywords? has-upload-files?) :high
-                   (or has-keywords? has-upload-files?) :medium
-                   :else :low)
+                   has-keywords? :low  ;; Just keywords alone is now low confidence
+                   :else :none)
      :reasons {:has-keywords has-keywords?
-               :has-upload-files has-upload-files?}}))
+               :has-upload-files has-upload-files?
+               :has-customersolutions has-customersolutions?}}))
 
 (defn ai-intent-detection
   "Use Claude AI to detect user upload intent.

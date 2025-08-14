@@ -163,13 +163,104 @@
                            :expected-email expected-email
                            :tried-variations (take 5 variations)})
                  
-                 ;; For now, skip the expensive full search and return not found
-                 ;; The full search would require fetching every item individually which is too slow
-                 {:success false
-                  :error (format "No 1Password entry found for tenant '%s' (email: %s). Please ensure the item exists in the 'Customer Support (Site Registrations)' vault with one of these names: %s" 
-                                tenant 
-                                expected-email
-                                (str/join ", " (take 5 variations)))}
+                 ;; Try using op's search functionality to find items with the email
+                 ;; We'll search for items in the vault and filter by those containing the email
+                 (log/info "Searching 1Password vault for items with email" {:email expected-email})
+                 (let [;; List all items in the vault first
+                       list-result (process/shell 
+                                  {:out :string :err :string :timeout default-timeout-ms :env env}
+                                  "op" "item" "list"
+                                  "--vault" vault-name
+                                  "--format" "json")
+                       ;; Try searching by the email without the domain
+                       search-term (str "customersolutions+" tenant)]
+                   
+                   (if (zero? (:exit list-result))
+                     (let [all-items (json/parse-string (:out list-result) true)
+                           ;; Filter items that might contain our email in title or other fields
+                           ;; This is a heuristic to reduce the number of items we need to fetch
+                           potential-items (filter (fn [item]
+                                                    (or (str/includes? (str/lower-case (str (:title item))) 
+                                                                      (str/lower-case tenant))
+                                                        (str/includes? (str/lower-case (str (:title item)))
+                                                                      (str/lower-case search-term))
+                                                        (str/includes? (str/lower-case (str (:title item)))
+                                                                      expected-email)))
+                                                  all-items)
+                           ;; If no filtered items, check ALL items (fallback)
+                           items-to-check (if (empty? potential-items) all-items potential-items)
+                           matching-items (atom [])]
+                       
+                       (log/debug "Checking items for credentials" {:total (count all-items) 
+                                                                    :filtered (count items-to-check)})
+                       
+                       ;; Check each potential item
+                       (doseq [item (take 20 items-to-check)] ; Limit to first 20 items to avoid timeout
+                         (try
+                           (let [get-result (process/shell 
+                                          {:out :string :err :string :timeout 3000 :env env}
+                                          "op" "item" "get" (:id item)
+                                          "--vault" vault-name
+                                          "--format" "json"  
+                                          "--reveal")]
+                             (when (zero? (:exit get-result))
+                               (let [item-data (json/parse-string (:out get-result) true)
+                                     username (some->> item-data :fields 
+                                                      (some #(when (or (= "username" (:label %))
+                                                                      (= "username" (:id %))) 
+                                                              (:value %))))
+                                     password (some->> item-data :fields 
+                                                      (some #(when (or (= "password" (:label %))
+                                                                      (= "password" (:id %))) 
+                                                              (:value %))))]
+                                 (when (and username password
+                                           (= (str/lower-case username) (str/lower-case expected-email)))
+                                   (swap! matching-items conj (merge item
+                                                                     {:username username
+                                                                      :password password}))))))
+                           (catch Exception e
+                             ;; Skip items that can't be retrieved
+                             nil)))
+                       
+                       (let [matches @matching-items]
+                         (if (empty? matches)
+                           {:success false
+                            :error (format "No 1Password entry found for tenant '%s' (email: %s). Searched %d items. Please ensure the item exists in the 'Customer Support (Site Registrations)' vault." 
+                                          tenant 
+                                          expected-email
+                                          (count items-to-check))}
+                           
+                           ;; Found matching items - use the most recent one if multiple
+                           (let [selected-item (if (> (count matches) 1)
+                                              (do
+                                                (log/warn "Multiple 1Password items found for tenant" 
+                                                         {:tenant tenant 
+                                                          :email expected-email
+                                                          :count (count matches)
+                                                          :items (map :title matches)})
+                                                ;; Sort by updated_at and take the most recent
+                                                (first (sort-by :updated_at #(compare %2 %1) matches)))
+                                              (first matches))]
+                             
+                             (if (and (:username selected-item) (:password selected-item))
+                               (let [credentials {:email (:username selected-item) 
+                                                 :password (:password selected-item)}]
+                                 (swap! credentials-cache assoc tenant credentials)
+                                 (log/info "Successfully fetched credentials for tenant via search" 
+                                          {:tenant tenant 
+                                           :item-title (:title selected-item)
+                                           :multiple-items (> (count matches) 1)})
+                                 {:success true 
+                                  :email (:username selected-item)
+                                  :password (:password selected-item)
+                                  :cached false
+                                  :multiple-items-found (> (count matches) 1)
+                                  :item-used (:title selected-item)})
+                               {:success false
+                                :error "Invalid credential format from 1Password"})))))
+                     
+                     {:success false
+                      :error (format "Failed to list 1Password items: %s" (:err list-result))}))
                  
                  #_(let [list-result (process/shell 
                                   {:out :string :err :string :timeout default-timeout-ms :env env}

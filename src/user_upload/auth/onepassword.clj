@@ -195,10 +195,11 @@
                                                                     :filtered (count items-to-check)})
                        
                        ;; Check each potential item
-                       (doseq [item (take 20 items-to-check)] ; Limit to first 20 items to avoid timeout
+                       ;; Reduce to 5 items for much better performance
+                       (doseq [item (take 5 items-to-check)]
                          (try
                            (let [get-result (process/shell 
-                                          {:out :string :err :string :timeout 3000 :env env}
+                                          {:out :string :err :string :timeout 2000 :env env}
                                           "op" "item" "get" (:id item)
                                           "--vault" vault-name
                                           "--format" "json"  

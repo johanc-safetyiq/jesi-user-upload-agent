@@ -5,7 +5,7 @@
    mode and parse structured JSON responses for intent detection and column mapping."
   (:require [babashka.process :as process]
             [cheshire.core :as json]
-            [clojure.tools.logging :as log]
+            [user-upload.log :as log]
             [clojure.string :as str]))
 
 (def ^:private default-timeout-ms 30000) ; 30 seconds
@@ -15,12 +15,12 @@
   [prompt system-prompt & {:keys [allowed-tools cwd]
                            :or {allowed-tools "Read"
                                 cwd "/Users/johan/Work/brisbane/jesi-system/user-upload-agent"}}]
-  (let [full-prompt (str prompt "\n\nSystem: " system-prompt)]
+  (let [full-prompt (str prompt "\n\n" system-prompt)]
     ["claude" 
-     "--print" full-prompt
+     "--print"
      "--allowedTools" allowed-tools
-     "--dangerously-skip-permissions" 
-     "--output-format" "json"]))
+     "--output-format" "json"
+     full-prompt]))
 
 (defn- parse-json-response
   "Parse Claude's JSON response, handling errors gracefully."
@@ -30,7 +30,8 @@
       ;; Don't keywordize keys - keep them as strings
       (json/parse-string response-str false))
     (catch Exception e
-      (log/warn "Failed to parse Claude JSON response:" response-str "Error:" (.getMessage e))
+      (log/warn "Failed to parse Claude JSON response" 
+                {:response response-str :error (.getMessage e)})
       nil)))
 
 (defn invoke-claude-with-timeout
@@ -57,7 +58,7 @@
                                       :allowed-tools allowed-tools
                                       :cwd cwd)]
     (try
-      (log/debug "Invoking Claude CLI:" (str/join " " command))
+      (log/debug "Invoking Claude CLI" {:command (str/join " " command)})
       (let [result (apply process/shell 
                          {:timeout timeout-ms
                           :out :string
@@ -95,11 +96,11 @@
            :stderr err}))
       
       (catch java.util.concurrent.TimeoutException e
-        (log/warn "Claude CLI timed out after" timeout-ms "ms")
+        (log/warn "Claude CLI timed out" {:timeout-ms timeout-ms})
         {:success false :timeout true :error "Claude CLI timed out"})
       
       (catch Exception e
-        (log/error e "Unexpected error invoking Claude CLI")
+        (log/error "Unexpected error invoking Claude CLI" e)
         {:success false :error (.getMessage e)}))))
 
 (defn check-claude-availability
@@ -132,18 +133,39 @@
        :is-user-upload - Boolean result
        :error - Error message"
   [ticket attachments]
-  (let [prompt (json/generate-string
-                {:task "intent"
-                 :ticket ticket
-                 :attachments attachments})
-        system-prompt "Return ONLY JSON: {\"is_user_upload\": <bool>} with no prose."]
+  (let [prompt (str "Analyze this Jira ticket to determine if it's a user upload request:\n"
+                   "Ticket: " (:key ticket) "\n"
+                   "Summary: " (:summary ticket) "\n"
+                   "Description: " (or (:description ticket) "No description") "\n"
+                   "Attachments: " (if (seq attachments) (str/join ", " attachments) "None") "\n\n"
+                   "Is this a request to bulk upload/import users into a system? "
+                   "Reply with ONLY this JSON: {\"is_user_upload\": true} or {\"is_user_upload\": false}")
+        system-prompt "IMPORTANT: Reply with ONLY valid JSON, no explanatory text. The response must be exactly: {\"is_user_upload\": true} or {\"is_user_upload\": false}"]
     
     (let [response (invoke-claude-with-timeout prompt system-prompt
                                                :allowed-tools "Read")]
       (if (:success response)
-        (if-let [is-upload (get-in response [:result "is_user_upload"])]
-          {:success true :is-user-upload is-upload}
-          {:success false :error "Missing is_user_upload field in response"})
+        (let [result (:result response)]
+          (log/debug "Claude response result" {:result result})
+          ;; Handle both direct JSON response and text containing JSON
+          (cond
+            ;; Direct JSON response with is_user_upload field
+            (get result "is_user_upload")
+            {:success true :is-user-upload (get result "is_user_upload")}
+            
+            ;; Text response that might contain JSON - try to extract it
+            (string? result)
+            (if-let [json-match (re-find #"\{[^}]*\"is_user_upload\"[^}]*\}" result)]
+              (if-let [parsed (parse-json-response json-match)]
+                (if-let [is-upload (get parsed "is_user_upload")]
+                  {:success true :is-user-upload is-upload}
+                  {:success false :error (str "Missing is_user_upload field after parsing. Got: " parsed)})
+                {:success false :error (str "Failed to parse JSON from text response: " json-match)})
+              {:success false :error (str "No valid JSON found in text response: " result)})
+            
+            ;; Unexpected response format
+            :else
+            {:success false :error (str "Unexpected response format. Got: " result)}))
         {:success false :error (:error response)}))))
 
 (defn invoke-column-mapping

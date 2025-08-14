@@ -65,7 +65,16 @@
                            :as :json
                            :coerce :always}
                           converted-options)]
-    (log/info "Backend API request" {:method method :endpoint endpoint :base-url base-url})
+    (log/info "Backend API request" 
+             {:method method 
+              :endpoint endpoint 
+              :base-url base-url
+              :has-body (boolean (:body request-options))
+              :body-preview (when (:body request-options)
+                             (let [body-str (str (:body request-options))]
+                               (if (> (count body-str) 200)
+                                 (str (subs body-str 0 200) "...")
+                                 body-str)))})
     (try
       (let [response (case method
                        :get (http/get url request-options)
@@ -74,10 +83,26 @@
                        :delete (http/delete url request-options))]
         (if (< (:status response) 400)
           (do
-            (log/info "Backend API success" {:status (:status response) :endpoint endpoint})
+            (log/info "Backend API success" 
+                     {:status (:status response) 
+                      :endpoint endpoint
+                      :response-preview (when-let [body (:body response)]
+                                         (let [body-str (if (string? body) 
+                                                         body 
+                                                         (json/generate-string body))]
+                                           (if (> (count body-str) 200)
+                                             (str (subs body-str 0 200) "...")
+                                             body-str)))})
             response)
           (do
-            (log/error "Backend API error" {:status (:status response) :endpoint endpoint :body (:body response)})
+            (log/error "Backend API error" 
+                      {:status (:status response) 
+                       :endpoint endpoint 
+                       :error-body (:body response)
+                       :error-message (when (map? (:body response))
+                                       (or (get-in response [:body :message])
+                                           (get-in response [:body :error])
+                                           (:body response)))})
             (throw (ex-info "Backend API request failed"
                             {:status (:status response)
                              :endpoint endpoint
@@ -188,17 +213,35 @@
    - :defaultTeam (optional, defaults to first teamId)
    - :roleId (required)"
   [user-data]
-  (log/info "Creating user" {:email (:email user-data)})
+  (log/info "Creating user - Request details" 
+           {:email (:email user-data)
+            :firstName (:firstName user-data)
+            :lastName (:lastName user-data)
+            :teamIds (:teamIds user-data)
+            :roleId (:roleId user-data)
+            :title (:title user-data)})
+  
   (when (some str/blank? [(:firstName user-data) (:lastName user-data) (:email user-data)])
+    (log/error "Missing required user fields" {:user-data user-data})
     (throw (ex-info "Missing required user fields" {:user-data user-data})))
   (when (str/blank? (:roleId user-data))
+    (log/error "Missing required roleId" {:user-data user-data})
     (throw (ex-info "Missing required roleId" {:user-data user-data})))
   (when (empty? (:teamIds user-data))
+    (log/error "Missing required teamIds" {:user-data user-data})
     (throw (ex-info "Missing required teamIds" {:user-data user-data})))
   
   (let [response (make-request :post (base-api-url) "/users"
-                               {:json-params user-data})]
-    (:body response)))
+                               {:json-params user-data})
+        body (:body response)]
+    (log/info "Creating user - Response" 
+             {:email (:email user-data)
+              :success (boolean (:id body))
+              :response-id (:id body)
+              :response-keys (keys body)
+              :error-message (when-not (:id body) 
+                              (or (:message body) (:error body) (str body)))})
+    body))
 
 (defn create-team
   "Create a new team (v1 API).
@@ -211,8 +254,9 @@
   (log/info "Creating team" {:name (:name team-data)})
   (when (str/blank? (:name team-data))
     (throw (ex-info "Missing required team name" {:team-data team-data})))
-  (when (empty? (:members team-data))
-    (throw (ex-info "Missing required team members" {:team-data team-data})))
+  ;; Allow empty members - teams can be created without initial members
+  ;; (when (empty? (:members team-data))
+  ;;   (throw (ex-info "Missing required team members" {:team-data team-data})))
   (when (empty? (:escalationLevels team-data))
     (throw (ex-info "Missing required escalation levels" {:team-data team-data})))
   

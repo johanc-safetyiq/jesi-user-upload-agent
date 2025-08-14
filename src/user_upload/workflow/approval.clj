@@ -62,10 +62,6 @@
         user-count (count valid-data)
         team-count (count team-names)
         
-        ;; Build user summary
-        user-summary (take 10 (map #(select-keys % [:email :first-name :last-name :user-role])
-                                  valid-data))
-        
         ;; Build team summary
         team-summary (vec team-names)]
     
@@ -75,7 +71,6 @@
       :user-count user-count
       :team-count team-count
       :attachments (mapv #(select-keys % [:filename :fingerprint :size]) attachments)
-      :user-preview user-summary
       :teams team-summary
       :timestamp (str (java.time.Instant/now))}
      extra-info)))
@@ -90,10 +85,11 @@
      Formatted comment body string"
   [request-data]
   (let [{:keys [ticket-key tenant user-count team-count attachments 
-                user-preview teams timestamp
-                column-mapping tenant-email credentials-found sheet-detected]} request-data
+                teams timestamp
+                column-mapping tenant-email credentials-found sheet-detected
+                failed-attachments]} request-data
         
-        ;; Format attachments section
+        ;; Format successful attachments section
         attachments-section (str/join "\n" 
                                      (map #(format "  - %s (SHA-256: %s, %d bytes)"
                                                   (:filename %)
@@ -103,14 +99,13 @@
                                                   (or (:size %) 0))
                                           attachments))
         
-        ;; Format user preview
-        user-preview-section (str/join "\n"
-                                      (map #(format "  - %s %s <%s> [%s]"
-                                                   (:first-name %)
-                                                   (:last-name %)
-                                                   (:email %)
-                                                   (:user-role %))
-                                           user-preview))
+        ;; Format failed attachments section if any
+        failed-section (when (seq failed-attachments)
+                        (str/join "\n"
+                                 (map #(format "  - %s: %s"
+                                              (:filename %)
+                                              (or (:error %) "Processing failed"))
+                                      failed-attachments)))
         
         ;; Format teams
         teams-section (str/join ", " teams)
@@ -123,44 +118,42 @@
                                                file-col expected-col))
                                        column-mapping)))]
     
-    (str approval-request-prefix "\n\n"
-         "# USER UPLOAD APPROVAL REQUEST\n\n"
-         "**Tenant Email:** " (or tenant-email (str "customersolutions+" tenant "@jesi.io")) "\n"
-         "**1Password Credentials:** " (if credentials-found 
-                                         (if (:multiple-items-found request-data)
-                                           (str "✓ Found (multiple items - using: " (:item-used request-data) ")")
-                                           "✓ Found")
-                                         "✗ Not found") "\n\n"
+    (str approval-request-prefix "\n"
+         "**USER UPLOAD APPROVAL REQUEST**\n"
+         "**Tenant:** " (or tenant-email (str "customersolutions+" tenant "@jesi.io")) 
+         " | **1Password:** " (if credentials-found 
+                                (if (:multiple-items-found request-data)
+                                  (str "✓ Found (multiple items - using: " (:item-used request-data) ")")
+                                  "✓ Found")
+                                "✗ Not found") "\n"
+         "**Users:** " user-count " | **Teams (" team-count "):** " teams-section " | **Files:** " (count attachments) "\n"
+         "**Attachments:** " (str/join ", " 
+                                      (map #(format "%s (%s...)"
+                                                   (:filename %)
+                                                   (if (:fingerprint %)
+                                                     (subs (:fingerprint %) 0 (min 8 (count (:fingerprint %))))
+                                                     "unknown"))
+                                           attachments)) "\n"
          
-         "# SUMMARY\n"
-         "- **Users to create:** " user-count "\n"
-         "- **Teams involved:** " team-count " (" teams-section ")\n"
-         "- **Attachments:** " (count attachments) "\n\n"
-         
-         "# ATTACHMENTS\n"
-         attachments-section "\n\n"
-         
-         "# USER PREVIEW (first 10)\n"
-         user-preview-section "\n"
-         (when (> user-count 10)
-           (str "\n... and " (- user-count 10) " more users.\n"))
-         "\n"
-         
-         "# TEAMS\n"
-         teams-section "\n\n"
+         (when failed-section
+           (str "**Failed:** " (str/join ", " 
+                                        (map #(format "%s (%s)"
+                                                     (:filename %)
+                                                     (or (:error %) "error"))
+                                             failed-attachments)) "\n"))
          
          (when mapping-section
-           (str "# COLUMN MAPPING\n"
-                (if sheet-detected
-                  (str "**Sheet detected:** " sheet-detected "\n")
+           (str (if sheet-detected
+                  (str "**Sheet:** " sheet-detected "\n")
                   "")
-                "**File columns → Expected columns:**\n"
-                mapping-section "\n\n"))
+                "**Column Mapping:**\n" 
+                (str/join "\n" 
+                         (map (fn [[file-col expected-col]]
+                               (format "  %s → %s"
+                                      file-col expected-col))
+                              column-mapping)) "\n"))
          
-         "---\n"
-         "```json\n" (json/generate-string request-data) "\n```\n"
-         "**To approve:** Reply with exactly 'approved' (case-insensitive)\n"
-         "**To reject:** Reply with 'rejected' followed by a reason\n")))
+         "**To approve:** Reply with 'approved' | **CSV attached:** users-for-approval.csv")))
 
 (defn- extract-codeblocks-from-adf
   "Extract code block content from ADF structure."
@@ -358,8 +351,8 @@
      ticket-key - Jira ticket key
      tenant - Tenant name
      valid-data - Validated user data
-     attachments - Attachments with fingerprints
-     extra-info - Map with additional info like mapping, credentials status, etc.
+     attachments - Attachments with fingerprints (successful attachments)
+     extra-info - Map with additional info like mapping, credentials status, failed-attachments, etc.
    
    Returns:
      Map with success status and details"
@@ -397,11 +390,8 @@
               request-data (-> (generate-approval-request-data ticket-key tenant valid-data attachments extra-info)
                               (assoc :csv-attachment csv-info))
               
-              ;; Update comment to mention the CSV
-              comment-body (str (format-approval-request-comment request-data)
-                              (when csv-info
-                                (str "\n\n---\n**Review CSV:** " (:filename csv-info) 
-                                    " (" (:row-count csv-info) " users) has been attached to this ticket for your review.")))
+              ;; CSV info is now included in format-approval-request-comment
+              comment-body (format-approval-request-comment request-data)
               
               ;; Step 4: Post the comment
               result (jira/add-comment ticket-key comment-body)]

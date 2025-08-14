@@ -38,3 +38,20 @@ Thumbs.db
 
 # Downloads directory for testing
 downloads/
+
+# Test and debug files
+test_*.clj
+debug_*.clj
+check_*.clj
+create_*.clj
+test-*.clj
+*-test.clj
+*.csv
+*.xlsx
+*.xls
+
+# Backup files
+*_backup.clj
+*_broken.clj
+*_clean.clj
+*_v2.clj

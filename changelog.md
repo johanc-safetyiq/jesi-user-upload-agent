@@ -574,6 +574,87 @@
 
 ---
 
+### Step 21: 1Password Integration Refactoring ✅
+**Date:** 2025-08-14
+**Status:** Completed
+**Files Modified:**
+- `src/user_upload/auth/onepassword.clj` - Complete rewrite with bulk pre-loading
+- `src/user_upload/core.clj` - Added credential pre-loading at startup
+
+**Problem Solved:**
+- Previous implementation tried variations of tenant names to find 1Password items
+- Searching for items like "boartlongyearapac" timed out after 60+ seconds
+- Leading/trailing spaces in username fields caused match failures
+- Multiple items with same username caused inconsistencies
+
+**Solution Implemented:**
+1. **Bulk Pre-loading** - Load ALL credentials from vault at startup (~3-5 minutes)
+2. **Email-based Cache** - Map lowercase emails to credential objects
+3. **Duplicate Handling** - Keep most recently updated item when duplicates exist
+4. **Instant Lookups** - All subsequent credential fetches are from in-memory cache
+
+**Key Changes:**
+- Replaced complex tenant name variation logic with simple email matching
+- Added `preload-all-credentials!` function that fetches all 814 vault items
+- Process items in parallel batches of 10 for performance
+- Build cache mapping 614 unique emails (144 duplicates found)
+- Trim whitespace from usernames to handle data entry inconsistencies
+- Add vault parameter to all 1Password CLI calls (required for service accounts)
+
+**Performance Impact:**
+- **Before**: 60+ second timeouts for tenants like "boartlongyearapac"
+- **After**: 3-5 minute initial load, then instant lookups for all tenants
+- **Trade-off**: Longer startup time for guaranteed success and instant runtime lookups
+
+**Validation:**
+- ✅ Successfully loads 614 unique credentials from 814 vault items
+- ✅ JESI-7754 (qbirt) - Found instantly after preload
+- ✅ JESI-7693 (boartlongyearapac) - Found instantly after preload
+- ✅ Handles leading/trailing spaces in username fields
+- ✅ Correctly resolves duplicates by keeping most recent
+- ✅ All subsequent lookups are instant from cache
+
+**Commit:** `git commit -m "Refactor 1Password integration with bulk pre-loading for performance"`
+
+---
+
+### Step 22: Phase 2 Processing & Bug Fixes ✅
+**Date:** 2025-08-14
+**Status:** Completed
+**Files Modified:**
+- `src/user_upload/workflow/processor.clj` - Fixed phase 2 processing and status transitions
+- `src/user_upload/workflow/orchestrator.clj` - Added team creation, role mapping, and improved error messages
+- `src/user_upload/api/client.clj` - Enhanced logging for debugging API calls
+- `src/user_upload/jira/client.clj` - Fixed comment formatting in transitions
+
+**Key Improvements:**
+1. **Phase 2 CSV Processing** - System now correctly downloads and uses users-for-approval.csv for approved tickets
+2. **Automatic Team Creation** - Missing teams are created automatically with current user as initial member
+3. **Case-Insensitive Mappings** - Role and team names now match case-insensitively
+4. **Smart Status Transitions** - Tickets move to "Done" on success, "Info-Required" on failures
+5. **Summary Comments** - Detailed upload results posted to tickets before status transitions
+6. **Enhanced Logging** - API requests/responses logged with full details for debugging
+7. **Better Error Messages** - Failed users show actual API error messages, not generic text
+8. **Duplicate Comment Fix** - Removed duplicate summary posting that created two comments
+
+**Bug Fixes:**
+- Fixed "Info Required" vs "Info-Required" status name inconsistency
+- Fixed transition comments to use Atlassian Document Format (ADF)
+- Fixed duplicate summary comment posting
+- Fixed error messages to show actual API errors in user failure details
+- Added forward declaration for text-to-adf function
+
+**Validation:**
+- ✅ JESI-7754 successfully processed 195 users (80 created, 114 existed, 1 failed)
+- ✅ Teams automatically created when missing
+- ✅ Roles mapped correctly despite case differences
+- ✅ Ticket transitioned to Info-Required with detailed failure comment
+- ✅ Only one summary comment posted (not duplicated)
+
+**Commit:** `git commit -m "Fix phase 2 processing, add team creation, and improve error reporting"`
+
+---
+
 ## Phase 6: Reporting & Error Handling
 
 ### Step 15: Result Reporting

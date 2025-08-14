@@ -11,6 +11,9 @@
     [java.nio.file Files]
     [java.nio.file.attribute FileAttribute]))
 
+;; Forward declarations
+(declare text-to-adf)
+
 ;; Authentication helpers
 
 (defn- encode-basic-auth
@@ -175,7 +178,7 @@
                                ;; Use the ID as-is
                                transition-id)
         payload (cond-> {:transition {:id (str actual-transition-id)}}
-                  comment (assoc :update {:comment [{:add {:body comment}}]}))
+                  comment (assoc :update {:comment [{:add {:body (text-to-adf comment)}}]}))
         endpoint (str "/issue/" issue-key "/transitions")]
     ;; Use json-params which will be converted to :body with JSON encoding
     (make-request :post endpoint {:json-params payload})))

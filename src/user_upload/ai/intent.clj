@@ -2,83 +2,14 @@
   "AI-powered intent detection for Jira tickets.
    
    This module determines whether a Jira ticket represents a user upload request
-   by analyzing the ticket summary, description, and attachments using Claude AI."
+   by analyzing the ticket summary, description, and attachments using Claude AI.
+   No fallback heuristics - fails fast if AI is unavailable."
   (:require [user-upload.ai.claude :as claude]
-            [clojure.tools.logging :as log]
+            [user-upload.log :as log]
             [clojure.string :as str]))
 
-(def ^:private user-upload-keywords
-  "Keywords that commonly indicate user upload requests."
-  ["upload" "add users" "new users" "user import" "bulk users" "user list"
-   "team members" "employees" "staff" "personnel" "roster" "directory"
-   "onboard" "onboarding" "user data" "user file" "spreadsheet" "csv" "excel"])
-
-(def ^:private user-upload-file-extensions
-  "File extensions commonly used for user data uploads."
-  [".csv" ".xlsx" ".xls" ".tsv"])
-
-(defn contains-upload-keywords?
-  "Check if text contains keywords indicating user upload intent."
-  [text]
-  (when text
-    (let [lower-text (str/lower-case text)]
-      (some #(str/includes? lower-text %) user-upload-keywords))))
-
-(defn contains-upload-file-types?
-  "Check if attachments contain file types commonly used for user uploads."
-  [attachments]
-  (when (seq attachments)
-    (some (fn [filename]
-            (let [lower-filename (str/lower-case filename)]
-              (some #(str/ends-with? lower-filename %) user-upload-file-extensions)))
-          attachments)))
-
-(defn heuristic-intent-check
-  "Perform heuristic-based intent detection as fallback when AI is unavailable.
-   
-   Args:
-     ticket - Map with :key, :summary, :description
-     attachments - Vector of attachment filenames
-   
-   Returns:
-     Map with :method :heuristic and :is-user-upload boolean"
-  [ticket attachments]
-  (let [{:keys [summary description]} ticket
-        ;; Check for customersolutions email which is a strong indicator
-        has-customersolutions? (when description
-                                (str/includes? (str/lower-case description) "customersolutions+"))
-        has-keywords? (or (contains-upload-keywords? summary)
-                          (contains-upload-keywords? description))
-        has-upload-files? (contains-upload-file-types? attachments)
-        
-        ;; More intelligent check:
-        ;; - If has customersolutions email, it's likely a user upload
-        ;; - If has CSV/Excel files, it's likely a user upload  
-        ;; - If only has keywords but no files and no customersolutions, be more cautious
-        is-user-upload (or has-customersolutions?
-                          has-upload-files?
-                          ;; Only accept keyword match if it's strong (e.g., "user upload", "bulk users")
-                          (and has-keywords?
-                               (or (str/includes? (str/lower-case (str summary " " description)) "user upload")
-                                   (str/includes? (str/lower-case (str summary " " description)) "bulk user")
-                                   (str/includes? (str/lower-case (str summary " " description)) "add user")
-                                   (str/includes? (str/lower-case (str summary " " description)) "new user")
-                                   (str/includes? (str/lower-case (str summary " " description)) "onboard"))))]
-    
-    (log/debug (format "Heuristic intent check for %s: keywords=%s files=%s customersolutions=%s -> %s"
-                       (:key ticket) has-keywords? has-upload-files? has-customersolutions? is-user-upload))
-    
-    {:method :heuristic
-     :is-user-upload is-user-upload
-     :confidence (cond
-                   has-customersolutions? :high
-                   has-upload-files? :high
-                   (and has-keywords? has-upload-files?) :high
-                   has-keywords? :low  ;; Just keywords alone is now low confidence
-                   :else :none)
-     :reasons {:has-keywords has-keywords?
-               :has-upload-files has-upload-files?
-               :has-customersolutions has-customersolutions?}}))
+;; Removed heuristic functions - no longer needed as we rely solely on AI detection
+;; AI-only approach ensures consistent and accurate intent detection
 
 (defn ai-intent-detection
   "Use Claude AI to detect user upload intent.
@@ -92,8 +23,9 @@
        :success true, :is-user-upload boolean
        :success false, :error string"
   [ticket attachments]
-  (log/debug (format "AI intent detection for ticket %s with %d attachments"
-                     (:key ticket) (count attachments)))
+  (log/debug "AI intent detection starting" 
+             {:ticket (:key ticket)
+              :attachment-count (count attachments)})
   
   (let [result (claude/invoke-intent-detection ticket attachments)]
     (if (:success result)
@@ -107,79 +39,60 @@
 (defn detect-user-upload-intent
   "Detect whether a Jira ticket represents a user upload request.
    
-   Uses AI detection with heuristic fallback for reliability.
+   Uses AI detection exclusively - fails fast if AI is unavailable.
    
    Args:
      ticket - Map with :key, :summary, :description
      attachments - Vector of attachment filenames
-     options - Map with optional keys:
-       :ai-enabled - Use AI detection (default true)
-       :fallback-to-heuristic - Fall back to heuristics if AI fails (default true)
    
    Returns:
      Map with keys:
-       :is-user-upload - Boolean result
-       :method - Detection method used (:ai, :heuristic, or :combined)
-       :confidence - Confidence level (:high, :medium, :low) for heuristic method
-       :ai-result - Original AI result (if AI was attempted)
-       :heuristic-result - Heuristic result (if used)
-       :error - Error message (if both methods failed)"
-  [ticket attachments & {:keys [ai-enabled fallback-to-heuristic]
-                         :or {ai-enabled true fallback-to-heuristic true}}]
+       :is-user-upload - Boolean result (false if AI fails)
+       :method - Always :ai
+       :ai-result - Original AI result
+       :success - Boolean indicating if detection succeeded
+       :error - Error message (if AI failed)"
+  [ticket attachments]
   
-  (log/info (format "Detecting intent for ticket %s: '%s'"
-                    (:key ticket) (:summary ticket)))
+  (log/info "Detecting ticket intent" 
+            {:ticket (:key ticket)
+             :summary (:summary ticket)})
   
-  (if ai-enabled
-    ;; Try AI detection first
-    (let [ai-result (ai-intent-detection ticket attachments)]
-      (if (:success ai-result)
-        ;; AI succeeded
-        (do
-          (log/info (format "AI detected intent for %s: %s"
-                            (:key ticket) (:is-user-upload ai-result)))
-          {:is-user-upload (:is-user-upload ai-result)
-           :method :ai
-           :ai-result ai-result})
-        
-        ;; AI failed, try fallback
-        (if fallback-to-heuristic
-          (let [heuristic-result (heuristic-intent-check ticket attachments)]
-            (log/warn (format "AI failed for %s, using heuristic: %s"
-                              (:key ticket) (:is-user-upload heuristic-result)))
-            {:is-user-upload (:is-user-upload heuristic-result)
-             :method :combined
-             :confidence (:confidence heuristic-result)
-             :ai-result ai-result
-             :heuristic-result heuristic-result})
-          
-          ;; No fallback, return AI error
-          {:is-user-upload false
-           :method :ai
-           :ai-result ai-result
-           :error (:error ai-result)})))
-    
-    ;; AI disabled, use heuristic only
-    (let [heuristic-result (heuristic-intent-check ticket attachments)]
-      (log/info (format "Heuristic-only intent for %s: %s"
-                        (:key ticket) (:is-user-upload heuristic-result)))
-      {:is-user-upload (:is-user-upload heuristic-result)
-       :method :heuristic
-       :confidence (:confidence heuristic-result)
-       :heuristic-result heuristic-result})))
+  ;; Always use AI detection
+  (let [ai-result (ai-intent-detection ticket attachments)]
+    (if (:success ai-result)
+      ;; AI succeeded
+      (do
+        (log/info "AI intent detected" 
+                  {:ticket (:key ticket)
+                   :is-user-upload (:is-user-upload ai-result)})
+        {:is-user-upload (:is-user-upload ai-result)
+         :method :ai
+         :ai-result ai-result
+         :success true})
+      
+      ;; AI failed - fail fast
+      (do
+        (log/error "AI intent detection failed" 
+                   {:ticket (:key ticket)
+                    :error (:error ai-result)})
+        {:is-user-upload false
+         :method :ai
+         :ai-result ai-result
+         :success false
+         :error (:error ai-result)}))))
 
 (defn batch-intent-detection
   "Detect intent for multiple tickets efficiently.
    
    Args:
      ticket-attachment-pairs - Vector of [ticket attachments] pairs
-     options - Same options as detect-user-upload-intent
    
    Returns:
      Vector of results in same order as input"
-  [ticket-attachment-pairs & options]
+  [ticket-attachment-pairs]
   (mapv (fn [[ticket attachments]]
-          (apply detect-user-upload-intent ticket attachments options))
+          (detect-user-upload-intent ticket attachments))
         ticket-attachment-pairs))
 
 (comment

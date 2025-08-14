@@ -1,4 +1,0 @@
-email,first name,last name,role,teams
-john.doe@example.com,John,Doe,Admin,Engineering|Support
-jane.smith@example.com,Jane,Smith,User,Marketing
-invalid-email,Bob,Jones,InvalidRole,Sales

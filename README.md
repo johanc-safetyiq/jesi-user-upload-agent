@@ -44,16 +44,20 @@ clj -M:dev
 ```bash
 # Jira Configuration
 JIRA_URL=https://your-domain.atlassian.net
-JIRA_EMAIL=your-email@company.com
+JIRA_USERNAME=your-email@company.com
 JIRA_API_TOKEN=your-jira-api-token
+JIRA_JQL=project = JESI AND labels = user-upload AND status in (Open, Review)
 
-# Backend API Configuration  
-BACKEND_API_URL=https://api.your-backend.com
-# Note: AUTH_EMAIL and AUTH_PASSWORD are fetched per-tenant from 1Password
+# Backend API Configuration
+BASE_API_URL=https://api.jesi.io/application
+BASE_CLJ_API_URL=https://apiv2.jesi.io
 
-# Processing Configuration
-UPLOAD_JQL=project = JESI AND labels = "user-upload" AND status = Open
-DRY_RUN=false
+# 1Password Configuration
+OP_SERVICE_ACCOUNT_TOKEN=your-1password-service-account-token
+# OP_VAULT_NAME=JESI Customer Solutions  # Optional, defaults to this
+
+# Logging
+LOG_LEVEL=INFO
 ```
 
 ### Tenant Authentication

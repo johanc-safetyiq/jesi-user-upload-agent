@@ -4,6 +4,7 @@
    This module provides the CLI interface and coordinates the complete
    workflow for processing user upload requests from Jira tickets."
   (:require [user-upload.log :as log]
+            [user-upload.terminal :as terminal]
             [user-upload.config :as config]
             [user-upload.workflow.processor :as processor]
             [user-upload.auth.onepassword :as op]
@@ -93,30 +94,43 @@
       (do
         (doseq [error (:errors prereq-check)]
           (log/error error)
-          (println "ERROR:" error))
+          (log/error "Prerequisite check failed" {:error error}))
         1) ; Exit code 1 for failure
       
-      ;; Prerequisites OK, run processor
-      (try
+      ;; Prerequisites OK, preload 1Password credentials then run processor
+      (do
+        (log/info "Pre-loading 1Password credentials" {:note "This may take a few minutes"})
+        (let [preload-result (op/preload-all-credentials!)]
+          (if (:success preload-result)
+            (do
+              (log/info "1Password credentials loaded successfully" 
+                       {:credentials (:credentials-loaded preload-result)
+                        :duplicates (:duplicates preload-result)})
+)
+            (do
+              (log/error "Failed to preload 1Password credentials" {:error (:error preload-result)})
+              (log/warn "Failed to preload 1Password credentials" 
+                       {:error (:error preload-result)
+                        :note "Lookups may fail"}))))
+        
+        (try
         (let [result (processor/run-once {:single-ticket (:single-ticket options)
                                           :ticket (:ticket options)})]
           (log/info "Processing complete" {:summary (:summary result)})
-          (println (:summary result))
+          (terminal/print-summary (:summary result))
           
           (if (:success result)
             (do
-              (println "SUCCESS: Processing completed successfully")
+              (terminal/print-success "Processing completed successfully")
               0) ; Exit code 0 for success
             (do
-              (println "PARTIAL SUCCESS:" (:summary result))
-              (when (:error result)
-                (println "ERROR:" (:error result)))
+              (terminal/print-partial-success (:summary result))
               0))) ; Still exit 0 if some tickets were processed
         
         (catch Exception e
           (log/error e "Unexpected error during processing")
-          (println "ERROR: Unexpected error:" (.getMessage e))
-          1))))) ; Exit code 1 for unexpected errors
+          (log/error "Unexpected error in run-once" e)
+          1)))))) ; Exit code 1 for unexpected errors
 
 (defn run-watch-mode
   "Run in watch mode, continuously polling for tickets.
@@ -129,8 +143,6 @@
   [options]
   (let [interval-seconds (:interval options)]
     (log/info "Starting watch mode" {:interval-seconds interval-seconds})
-    (println (str "Starting watch mode (polling every " interval-seconds " seconds)..."))
-    (println "Press Ctrl+C to stop")
     
     ;; Validate prerequisites once
     (let [prereq-check (validate-prerequisites)]
@@ -138,40 +150,57 @@
         (do
           (doseq [error (:errors prereq-check)]
             (log/error error)
-            (println "ERROR:" error))
+            (log/error "Prerequisite check failed" {:error error}))
           1) ; Exit code 1 for failure
         
-        ;; Prerequisites OK, start polling loop
-        (try
+        ;; Prerequisites OK, preload 1Password credentials then start polling loop
+        (do
+          (log/info "Pre-loading 1Password credentials" {:note "This may take a few minutes"})
+          (log/info "Pre-loading 1Password credentials for watch mode")
+          (let [preload-result (op/preload-all-credentials!)]
+            (if (:success preload-result)
+              (do
+                (log/info "1Password credentials loaded successfully" 
+                         {:credentials (:credentials-loaded preload-result)
+                          :duplicates (:duplicates preload-result)})
+                (println (format "Loaded %d credentials from 1Password" 
+                                (:credentials-loaded preload-result))))
+              (do
+                (log/error "Failed to preload 1Password credentials" {:error (:error preload-result)})
+                (println "Warning: Failed to preload 1Password credentials. Lookups may fail.")
+                (println "Error:" (:error preload-result)))))
+          
+          (try
           (loop [iteration 1]
             (log/info "Watch mode iteration" {:iteration iteration})
-            (println (str "\n=== Iteration " iteration " at " (java.time.LocalDateTime/now) " ==="))
+            (log/debug "Watch mode iteration" {:iteration iteration
+                                               :timestamp (str (java.time.LocalDateTime/now))})
             
             (try
               (let [result (processor/run-once {:single-ticket (:single-ticket options)})]
-                (println (:summary result))
+                (terminal/print-summary (:summary result))
                 (when (:error result)
-                  (println "ERROR:" (:error result))))
+                  (log/error "Watch iteration error" {:error (:error result)})))
               
               (catch Exception e
                 (log/error e "Error in watch mode iteration" {:iteration iteration})
-                (println "ERROR in iteration" iteration ":" (.getMessage e))))
+                (log/error "Error in watch iteration" e {:iteration iteration})))
             
             ;; Wait for next iteration
-            (println (str "Waiting " interval-seconds " seconds until next check..."))
+            (log/debug "Waiting for next iteration" {:wait-seconds interval-seconds})
             (Thread/sleep (* interval-seconds 1000))
             
             (recur (inc iteration)))
           
           (catch InterruptedException e
             (log/info "Watch mode interrupted")
-            (println "\nWatch mode stopped")
+            (log/info "Watch mode stopped")
             0) ; Normal exit
           
           (catch Exception e
             (log/error e "Unexpected error in watch mode")
-            (println "ERROR: Unexpected error in watch mode:" (.getMessage e))
-            1)))))) ; Exit code 1 for unexpected errors
+            (log/error "Unexpected error in watch mode" e)
+            1))))))) ; Exit code 1 for unexpected errors
 
 (defn hello-world
   "A simple hello world function for testing basic functionality."
@@ -187,7 +216,7 @@
     ;; Handle parsing errors
     (when errors
       (doseq [error errors]
-        (println "ERROR:" error))
+        (log/error "Configuration error" {:error error}))
       (println (usage summary))
       (System/exit 1))
     
@@ -202,10 +231,10 @@
     
     ;; Show configuration
     (log/info "Starting user upload agent" {:options options :args arguments})
-    (println "User Upload Agent Starting...")
+    (terminal/print-status "User Upload Agent Starting...")
     
     (when (:dry-run options)
-      (println "DRY RUN MODE: No changes will be made")
+      (log/info "Running in DRY RUN mode" {:note "No changes will be made"})
       (log/info "Dry run mode enabled"))
     
     ;; Run the appropriate mode

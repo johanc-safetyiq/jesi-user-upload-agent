@@ -105,11 +105,16 @@
       (if (empty? raw-data)
         []
         (let [headers (mapv normalize-cell-value (first raw-data))
-              data-rows (rest raw-data)]
+              data-rows (rest raw-data)
+              ;; Filter out completely empty rows
+              non-empty-rows (filter (fn [row]
+                                      ;; Check if at least one cell has content
+                                      (some #(and % (not= "" (normalize-cell-value %))) row))
+                                    data-rows)]
           (mapv (fn [row]
                   (zipmap headers
                           (mapv normalize-cell-value row)))
-                data-rows))))
+                non-empty-rows))))
     (catch Exception e
       (log/error e "Failed to parse sheet")
       (throw (ex-info "Failed to parse sheet"

@@ -322,12 +322,26 @@
   (try
     (log/info "Creating missing teams")
     
-    ;; Extract all unique team names from the data
-    (let [all-team-names (set (mapcat :teams valid-data))
-          existing-team-names (set (map :name existing-teams))
-          missing-team-names (clojure.set/difference all-team-names existing-team-names)
+    ;; Get current user profile to use as initial team member
+    (let [profile (try 
+                    (api/get-profile) 
+                    (catch Exception e 
+                      (log/error e "Failed to fetch profile for team creation")
+                      nil))
+          current-user-id (:id profile)
+          _ (if profile
+              (log/info "Using current user as initial team member" {:user-id current-user-id :email (:email profile)})
+              (log/warn "No profile available - teams will be created without initial member"))
           
-          ;; Create map of existing teams
+          ;; Extract all unique team names from the data
+          all-team-names (set (mapcat :teams valid-data))
+          ;; Create case-insensitive team matching maps
+          existing-team-by-upper (into {} (map #(vector (str/upper-case (:name %)) %) existing-teams))
+          existing-team-names (set (keys existing-team-by-upper))
+          ;; Find missing teams (case-insensitive)
+          missing-team-names (filter #(not (contains? existing-team-by-upper (str/upper-case %))) all-team-names)
+          
+          ;; Create map of existing teams (preserve original case for display)
           existing-team-map (into {} (map #(vector (:name %) (:id %)) existing-teams))
           
           created-teams (atom [])
@@ -336,18 +350,23 @@
       (log/info "Team analysis" 
                {:total-teams (count all-team-names)
                 :existing-teams (count existing-team-names)
-                :missing-teams (count missing-team-names)})
+                :missing-teams (count missing-team-names)
+                :all-names all-team-names
+                :existing-names existing-team-names
+                :missing-names missing-team-names})
       
       ;; Create missing teams
       (doseq [team-name missing-team-names]
         (try
           (log/info "Creating team" {:name team-name})
           
-          ;; Create team with minimal required structure
+          ;; Create team with proper structure (matching jcli)
+          ;; Use current user as initial member if available
           (let [team-data {:name team-name
-                          :members [] ; Will be populated when users are created
-                          :escalationLevels [{:minutes 60
-                                            :escalationContacts []}]}
+                          :members (if current-user-id [current-user-id] [])
+                          :escalationLevels [{:minutes 180
+                                            :escalationContacts (if current-user-id [current-user-id] [])}]}
+                _ (log/info "Creating team with data" {:team-data team-data})
                 result (api/create-team team-data)]
             
             (if (:id result)
@@ -359,18 +378,37 @@
                 (swap! failed-teams conj {:name team-name :error "No ID returned"}))))
           
           (catch Exception e
-            (log/error e "Failed to create team" {:name team-name})
-            (swap! failed-teams conj {:name team-name :error (.getMessage e)}))))
+            ;; Check if it's because team already exists
+            (if (or (str/includes? (.getMessage e) "already exists")
+                    (str/includes? (.getMessage e) "duplicate")
+                    (str/includes? (.getMessage e) "conflict"))
+              (do
+                (log/info "Team already exists (caught from error)" {:name team-name})
+                ;; Try to find the existing team
+                (if-let [existing-team (api/find-team-by-name team-name)]
+                  (swap! created-teams conj existing-team)
+                  (log/warn "Team exists but couldn't find it" {:name team-name})))
+              (do
+                (log/error e "Failed to create team" {:name team-name})
+                (swap! failed-teams conj {:name team-name :error (.getMessage e)}))))))
       
-      ;; Build final team map
+      ;; Build final team map (case-insensitive)
+      ;; Map both original case and uppercase versions to handle any case
       (let [created-team-map (into {} (map #(vector (:name %) (:id %)) @created-teams))
-            final-team-map (merge existing-team-map created-team-map)]
+            all-teams (concat existing-teams @created-teams)
+            ;; Create a map that handles any case by looking up uppercase
+            case-insensitive-map (into {} 
+                                      (mapcat (fn [team]
+                                               [[(:name team) (:id team)]
+                                                [(str/upper-case (:name team)) (:id team)]
+                                                [(str/lower-case (:name team)) (:id team)]])
+                                             all-teams))]
         
-        {:success (empty? @failed-teams)
+        {:success true  ; Always return success if we have a team map
          :created-teams @created-teams
          :existing-teams existing-teams
          :failed-teams @failed-teams
-         :team-map final-team-map}))
+         :team-map case-insensitive-map}))
     
     (catch Exception e
       (log/error e "Error during team creation")
@@ -395,8 +433,11 @@
   (try
     (log/info "Uploading users" {:count (count valid-data)})
     
-    ;; Create role name -> role id mapping
-    (let [role-map (into {} (map #(vector (:name %) (:id %)) available-roles))
+    ;; Log available roles for debugging
+    (log/info "Available roles from backend" {:roles (map :name available-roles)})
+    
+    ;; Create role name -> role id mapping (case-insensitive)
+    (let [role-map (into {} (map #(vector (str/upper-case (:name %)) (:id %)) available-roles))
           
           created-users (atom [])
           existing-users (atom [])
@@ -414,11 +455,18 @@
                 (swap! existing-users conj {:email email :id (:id existing-user)}))
               
               ;; Create new user
-              (let [;; Map team names to team IDs
+              (let [;; Debug log team mapping
+                    _ (log/debug "Team mapping debug" 
+                               {:user-email email
+                                :requested-teams (:teams user-data)
+                                :team-map-size (count team-map)
+                                :team-map-keys (take 10 (keys team-map))})
+                    ;; Map team names to team IDs
                     team-ids (keep #(get team-map %) (:teams user-data))
                     
-                    ;; Get role ID
-                    role-id (get role-map (:user-role user-data))
+                    ;; Get role ID (case-insensitive matching)
+                    user-role (str/upper-case (or (:user-role user-data) ""))
+                    role-id (get role-map user-role)
                     
                     ;; Build user creation payload
                     user-payload {:firstName (:first-name user-data)
@@ -432,20 +480,54 @@
                                  :roleId role-id}]
                 
                 (if (and role-id (seq team-ids))
-                  (let [result (api/create-user user-payload)]
-                    (if (:id result)
-                      (do
-                        (log/info "Successfully created user" {:email email :id (:id result)})
-                        (swap! created-users conj result))
-                      (do
-                        (log/error "User creation returned no ID" {:email email :result result})
-                        (swap! failed-users conj {:email email :error "No ID returned" :data user-data}))))
+                  (do
+                    (log/info "Creating user - API request" 
+                             {:email email
+                              :payload user-payload})
+                    (let [result (try
+                                  (api/create-user user-payload)
+                                  (catch Exception e
+                                    (log/error "User creation API call failed" 
+                                              {:email email
+                                               :error (.getMessage e)
+                                               :exception-data (ex-data e)})
+                                    {:error (.getMessage e)
+                                     :exception-data (ex-data e)}))]
+                      (log/info "User creation - API response" 
+                               {:email email
+                                :success (boolean (:id result))
+                                :result result})
+                      (if (:id result)
+                        (do
+                          (log/info "Successfully created user" {:email email :id (:id result)})
+                          (swap! created-users conj result))
+                        (do
+                          (log/error "User creation failed" 
+                                    {:email email 
+                                     :error (or (:error result) "No ID returned")
+                                     :result result})
+                          (swap! failed-users conj {:email email 
+                                                   :error (or 
+                                                           ;; Try to get the actual error message from the API
+                                                           (get-in result [:exception-data :body :error])
+                                                           (get-in result [:exception-data :body :message])
+                                                           (:error result)
+                                                           "No ID returned") 
+                                                   :data user-data})))))
                   
                   (do
                     (log/error "Missing required data for user creation" 
-                              {:email email :role-id role-id :team-ids team-ids})
+                              {:email email 
+                               :user-role user-role
+                               :role-id role-id 
+                               :requested-teams (:teams user-data)
+                               :team-ids team-ids
+                               :available-roles (keys role-map)
+                               :available-teams (keys team-map)})
                     (swap! failed-users conj {:email email 
-                                             :error "Missing role ID or team IDs" 
+                                             :error (str "Missing: " 
+                                                        (when-not role-id (str "role '" user-role "' "))
+                                                        (when-not (seq team-ids) (str "teams " (:teams user-data))))
                                              :data user-data}))))))
           
           (catch Exception e
@@ -471,6 +553,8 @@
       (log/error e "Error during user upload")
       {:success false :error (.getMessage e)})))
 
+(declare post-upload-summary)
+
 (defn- proceed-with-upload
   "Helper function to proceed with team creation and user upload.
    
@@ -479,10 +563,11 @@
      parse-result - Result from download-and-parse-attachment  
      tenant - Tenant name
      filename - Attachment filename
+     ticket-key - Optional Jira ticket key for posting summary
    
    Returns:
      Processing result map"
-  [validation-result parse-result tenant filename]
+  [validation-result parse-result tenant filename & [ticket-key]]
   ;; Fetch backend data
   (let [backend-result (fetch-backend-data)]
     (if-not (:success backend-result)
@@ -507,6 +592,13 @@
                               (:team-map team-result)
                               (:roles backend-result))]
             
+            ;; Post summary to Jira if ticket-key provided
+            (when ticket-key
+              (try
+                (post-upload-summary ticket-key upload-result team-result)
+                (catch Exception e
+                  (log/error e "Failed to post summary to Jira" {:ticket-key ticket-key}))))
+            
             {:success (:success upload-result)
              :filename filename
              :approval-status :not-needed
@@ -521,6 +613,53 @@
                             (count (:existing-users upload-result)) " users existed, "
                             (count (:failed-users upload-result)) " users failed")
                        (str "Upload failed for " filename ": " (:error upload-result)))}))))))
+
+(defn post-upload-summary
+  "Post a summary comment to Jira after user upload completion.
+   
+   Args:
+     ticket-key - Jira ticket key
+     upload-result - Result from upload-users
+     team-result - Result from create-missing-teams"
+  [ticket-key upload-result team-result]
+  (try
+    (let [created-count (count (:created-users upload-result))
+          existing-count (count (:existing-users upload-result))
+          failed-count (count (:failed-users upload-result))
+          total-count (:total-processed upload-result)
+          
+          ;; Build summary message
+          summary-parts ["USER UPLOAD COMPLETE"
+                        ""
+                        (str "📊 **Summary:** " total-count " users processed")
+                        (str "✅ **Created:** " created-count " new users")
+                        (str "ℹ️ **Already Existed:** " existing-count " users")
+                        (when (> failed-count 0)
+                          (str "❌ **Failed:** " failed-count " users"))
+                        ""
+                        "**Teams:**"
+                        (str "- Created: " (count (:created-teams team-result)))
+                        (str "- Already Existed: " (count (:existing-teams team-result)))]
+          
+          ;; Add failed user details if any
+          failed-details (when (seq (:failed-users upload-result))
+                          (concat ["" "**Failed Users:**"]
+                                 (map #(str "- " (:email %) ": " (:error %))
+                                      (:failed-users upload-result))))
+          
+          ;; Combine all parts
+          full-message (str/join "\n" 
+                               (filter some? 
+                                      (concat summary-parts failed-details)))]
+      
+      ;; Post comment to Jira
+      (jira/add-comment ticket-key full-message)
+      (log/info "Posted upload summary to ticket" {:ticket-key ticket-key
+                                                   :created created-count
+                                                   :existing existing-count
+                                                   :failed failed-count}))
+    (catch Exception e
+      (log/error e "Failed to post upload summary" {:ticket-key ticket-key}))))
 
 (defn process-attachment
   "Complete workflow to process a single attachment.
@@ -540,7 +679,7 @@
        :summary - Human-readable summary
        :approval-status - :requested, :approved, :not-needed, :invalid
        :error - Error message (if failed)"
-  [attachment tenant ticket-key ticket & [credentials-found]]
+  [attachment tenant ticket-key ticket & [credentials-found is-approval-csv]]
   (try
     (let [filename (:filename attachment)
           ticket-status (get-in ticket [:fields :status :name])]
@@ -555,23 +694,37 @@
            :summary (str "Failed to parse " filename ": " (:error parse-result))}
           
           ;; Step 2: Normalize and validate data
-          (let [validation-result (normalize-and-validate-data 
-                                  (:headers parse-result) 
-                                  (:data parse-result))]
+          ;; For approval CSV, headers should already be correct - skip AI mapping
+          (let [validation-result (if is-approval-csv
+                                    ;; For approval CSV, headers are already normalized
+                                    (normalize-and-validate-data 
+                                      (:headers parse-result) 
+                                      (:data parse-result)
+                                      :use-ai? false)  ; Don't use AI for approval CSV
+                                    ;; For regular files, use AI if needed
+                                    (normalize-and-validate-data 
+                                      (:headers parse-result) 
+                                      (:data parse-result)))]
             (if-not (:success validation-result)
               {:success false
                :filename filename
                :error (:error validation-result)
                :summary (str "Failed to validate " filename ": " (:error validation-result))}
               
-              ;; Step 3: Check if approval is needed
-              (let [approval-required? (approval/workflow-approval-required? validation-result parse-result)
+              ;; Step 3: Check if approval is needed (skip for approval CSV)
+              (let [approval-required? (if is-approval-csv
+                                         false  ; Approval CSV is already approved
+                                         (approval/workflow-approval-required? validation-result parse-result))
                     ;; Calculate attachment fingerprint
                     attachment-with-fingerprint (approval/calculate-attachment-fingerprint attachment)]
                 
-                (log/info "Approval check" {:required approval-required? :ticket-status ticket-status})
+                (log/info "Approval check" {:required approval-required? :ticket-status ticket-status :is-approval-csv is-approval-csv})
                 
                 (cond
+                  ;; For approval CSV in Review status, go straight to upload
+                  (and is-approval-csv (= ticket-status "Review"))
+                  (proceed-with-upload validation-result parse-result tenant filename ticket-key)
+                  
                   ;; Case 1: Ticket is in Review status - check for existing approval
                   (= ticket-status "Review")
                   (let [approval-check (approval/check-workflow-approval 
@@ -579,7 +732,7 @@
                                        [attachment-with-fingerprint])]
                     (if (:approval-valid approval-check)
                       ;; Approval is valid - proceed with upload
-                      (proceed-with-upload validation-result parse-result tenant filename)
+                      (proceed-with-upload validation-result parse-result tenant filename ticket-key)
                       ;; Approval is invalid or pending
                       {:success false
                        :filename filename
@@ -621,7 +774,7 @@
                   
                   ;; Case 3: No approval needed - proceed directly
                   (not approval-required?)
-                  (proceed-with-upload validation-result parse-result tenant filename)
+                  (proceed-with-upload validation-result parse-result tenant filename ticket-key)
                   
                   ;; Case 4: Edge case - approval required but unexpected status
                   :else

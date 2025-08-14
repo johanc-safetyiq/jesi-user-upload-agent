@@ -146,8 +146,9 @@
       
       ;; Handle different ticket statuses
       (cond
-        ;; Skip Info Required tickets - they need manual intervention
-        (= ticket-status "Info Required")
+        ;; Skip Info-Required tickets - they need manual intervention
+        (or (= ticket-status "Info Required")
+            (= ticket-status "Info-Required"))
         (do
           (log/info "Skipping Info Required ticket" {:ticket-key ticket-key})
           {:success true
@@ -161,7 +162,7 @@
           (log/info "Ticket is in Review status, checking for approval only" {:ticket-key ticket-key})
           (let [approval-check (approval/check-approval-status ticket-key)
                 approval-status (:status approval-check)
-                _ (log/info "Approval check result" {:status approval-status :type (type approval-status)})]
+                _ (log/info "Approval check result" {:status approval-status})]
             (cond
               (= approval-status :approved)
               (do
@@ -196,7 +197,8 @@
                             
                             ;; Transition to Info Required status
                             (let [transitions (jira/get-issue-transitions ticket-key)
-                                  info-required-transition (first (filter #(= "Info Required" (get-in % [:to :name])) 
+                                  info-required-transition (first (filter #(or (= "Info Required" (get-in % [:to :name]))
+                                                                              (= "Info-Required" (get-in % [:to :name]))) 
                                                                         (:transitions transitions)))]
                               (when info-required-transition
                                 (jira/transition-issue ticket-key (:id info-required-transition))))
@@ -232,7 +234,10 @@
                          :summary (str "No CSV/Excel attachments found in " ticket-key)}
                         
                         ;; Process each attachment for upload
-                        (let [results (for [attachment eligible-attachments
+                        ;; For Review status, prefer users-for-approval.csv if it exists
+                        (let [approval-csv (first (filter #(= "users-for-approval.csv" (:filename %)) eligible-attachments))
+                              attachments-to-process (if approval-csv [approval-csv] eligible-attachments)
+                              results (for [attachment attachments-to-process
                                            :let [download-result (download-attachment attachment)]
                                            :when (:success download-result)]
                                        (orchestrator/process-attachment
@@ -240,15 +245,38 @@
                                          tenant
                                          ticket-key
                                          ticket
-                                         true))  ; credentials-found is true
+                                         true  ; credentials-found is true
+                                         (= "users-for-approval.csv" (:filename attachment))))  ; is-approval-csv flag
                               successful? (some :success results)]
                           
-                          ;; Transition to Done/Closed after processing
-                          (when successful?
-                            (try
-                              (jira/transition-issue ticket-key "Done" "User upload approved and processed")
-                              (catch Exception _
-                                (jira/transition-issue ticket-key "Closed" "User upload approved and processed"))))
+                          ;; Transition based on results
+                          ;; Check if any users failed
+                          (let [failed-users (flatten (map #(get-in % [:results :upload :failed-users] []) results))
+                                has-failures? (seq failed-users)]
+                            
+                            ;; Note: post-upload-summary is already called inside process-attachment (orchestrator)
+                            ;; so we don't need to call it again here - it would create duplicate comments
+                            
+                            (cond
+                              ;; If there are failures, go to Info-Required (with hyphen)
+                              has-failures?
+                              (jira/transition-issue ticket-key "Info-Required" 
+                                                   (str "User upload completed with " (count failed-users) " failures. Check comments for details."))
+                              
+                              ;; If successful, try Done or Closed
+                              successful?
+                              (try
+                                (jira/transition-issue ticket-key "Done" "User upload completed successfully")
+                                (catch Exception _
+                                  (try
+                                    (jira/transition-issue ticket-key "Closed" "User upload completed successfully")
+                                    (catch Exception _
+                                      ;; If neither Done nor Closed work, just log the success
+                                      (log/info "Could not transition ticket to Done/Closed, but upload was successful")))))
+                              
+                              ;; If completely failed
+                              :else
+                              (jira/transition-issue ticket-key "Info-Required" "User upload failed. Check comments for details.")))
                           
                           {:success successful?
                            :ticket-key ticket-key

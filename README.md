@@ -132,6 +132,8 @@ clj -M -m user-upload.core --help
 The agent handles tickets based on their status:
 
 - **Open tickets**: Full processing - download attachments, parse, validate, request approval if needed
+  - If 1Password credentials missing: Comment with setup instructions and transition to "Info Required"
+- **Info Required tickets**: Skipped - waiting for credentials to be configured
 - **Review tickets with approval**: Process the upload and transition to Done
 - **Review tickets pending approval**: Skip with "waiting for approval" message
 - **Review tickets without approval request**: Skip with warning (unexpected state)
@@ -261,10 +263,12 @@ The `exploration/file-parsing/samples/` directory contains test CSV files:
 ## Processing Workflow
 
 ### For Open Tickets
-1. **Ticket Discovery**: Searches Jira using configured JQL (status IN ["Open", "Review"])
+1. **Ticket Discovery**: Searches Jira using configured JQL (status IN ["Open", "Review", "Info Required"])
 2. **Intent Detection**: AI determines if ticket is a user upload request
 3. **Tenant Extraction**: Identifies tenant from ticket content (e.g., customersolutions+qbirt@jesi.io)
 4. **Authentication**: Fetches tenant credentials from 1Password CLI
+   - If credentials not found: Posts comment with setup instructions and transitions to "Info Required"
+   - If credentials found: Continues with processing
 5. **Attachment Processing**: Downloads and parses CSV/Excel files
 6. **Sheet Detection**: For complex Excel files, AI identifies the correct sheet and data location
 7. **Column Mapping**: AI-assisted mapping of file headers to expected schema
@@ -275,6 +279,7 @@ The `exploration/file-parsing/samples/` directory contains test CSV files:
 ### For Review Tickets
 1. **Approval Check**: Verifies if "approved" comment exists after bot request
 2. **If Approved**: 
+   - Re-authenticates with tenant credentials (transitions to "Info Required" if missing)
    - Validates attachment fingerprints haven't changed
    - Creates missing teams in backend
    - Uploads users individually (continues on failures)
@@ -282,6 +287,13 @@ The `exploration/file-parsing/samples/` directory contains test CSV files:
    - Transitions ticket to Done/Closed
 3. **If Pending**: Skips ticket with "waiting for approval" message
 4. **If No Request**: Logs warning (unexpected state)
+
+### For Info Required Tickets
+1. **Skip Processing**: These tickets are awaiting manual intervention
+2. **Manual Action Required**: 
+   - Create 1Password entry for the tenant
+   - Transition ticket back to "Open" status
+3. **Next Run**: Agent will retry processing when ticket is back in "Open" status
 
 ## File Processing Capabilities
 
@@ -303,6 +315,20 @@ The system can handle complex files like "Copy of User Team - Qbirt.xlsx" where:
 - Rows 1-3 contain instructions
 - Row 4 contains headers
 - Row 5+ contains user data
+
+## Special Status Transitions
+
+### Info Required Status
+The agent automatically transitions tickets to "Info Required" when:
+- **Missing 1Password Credentials**: No entry found for the tenant's service account
+- **Authentication Failures**: Credentials exist but authentication fails
+
+The bot posts a detailed comment explaining:
+- The missing tenant and expected email format
+- Instructions for creating the 1Password entry
+- Next steps to resume processing
+
+Once credentials are configured, manually transition the ticket back to "Open" status.
 
 ## Approval Message Format
 

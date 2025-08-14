@@ -144,8 +144,19 @@
     (try
       (log/info "Processing ticket" {:ticket-key ticket-key :status ticket-status})
       
-      ;; Check if ticket is in Review status - if so, only check for approval
-      (if (= ticket-status "Review")
+      ;; Handle different ticket statuses
+      (cond
+        ;; Skip Info Required tickets - they need manual intervention
+        (= ticket-status "Info Required")
+        (do
+          (log/info "Skipping Info Required ticket" {:ticket-key ticket-key})
+          {:success true
+           :ticket-key ticket-key
+           :skipped true
+           :summary (str "Skipped " ticket-key " - waiting for credentials to be configured")})
+        
+        ;; Check if ticket is in Review status - if so, only check for approval
+        (= ticket-status "Review")
         (do
           (log/info "Ticket is in Review status, checking for approval only" {:ticket-key ticket-key})
           (let [approval-check (approval/check-approval-status ticket-key)
@@ -160,10 +171,53 @@
                                   ticket 
                                   "customersolutions+%s@jesi.io")]
                   (if-not (:success auth-result)
-                    {:success false
-                     :ticket-key ticket-key
-                     :error (:error auth-result)
-                     :summary (str "Failed to authenticate for " ticket-key ": " (:error auth-result))}
+                    ;; Check if this is a missing 1Password entry
+                    (if (and (str/includes? (str (:error auth-result)) "No 1Password entry found")
+                            (:tenant auth-result))
+                      ;; Handle missing 1Password entry for Review tickets too
+                      (do
+                        (log/warn "No 1Password entry found for tenant in Review ticket" 
+                                 {:ticket-key ticket-key :tenant (:tenant auth-result)})
+                        (try
+                          ;; Post comment to Jira
+                          (let [tenant (:tenant auth-result)
+                                expected-email (format "customersolutions+%s@jesi.io" tenant)
+                                comment-body (str "**Missing 1Password Credentials**\n\n"
+                                                "Unable to process this approved user upload because credentials are not configured for this tenant.\n\n"
+                                                "**Tenant:** " tenant "\n"
+                                                "**Expected Email:** " expected-email "\n\n"
+                                                "**Action Required:**\n"
+                                                "1. Create a 1Password entry in the 'Customer Support (Site Registrations)' vault\n"
+                                                "2. Set the username to: " expected-email "\n"
+                                                "3. Set the password for this service account\n"
+                                                "4. Ensure the service account has appropriate permissions in the backend\n\n"
+                                                "Once credentials are configured, please transition this ticket back to 'Review' status.")]
+                            (jira/add-comment ticket-key comment-body)
+                            
+                            ;; Transition to Info Required status
+                            (let [transitions (jira/get-issue-transitions ticket-key)
+                                  info-required-transition (first (filter #(= "Info Required" (get-in % [:to :name])) 
+                                                                        (:transitions transitions)))]
+                              (when info-required-transition
+                                (jira/transition-issue ticket-key (:id info-required-transition))))
+                            
+                            {:success false
+                             :ticket-key ticket-key
+                             :tenant tenant
+                             :error "Missing 1Password credentials"
+                             :summary (str "Transitioned " ticket-key " to Info Required - missing credentials for " tenant)})
+                          (catch Exception e
+                            (log/error e "Failed to update Review ticket with missing credentials info" 
+                                      {:ticket-key ticket-key})
+                            {:success false
+                             :ticket-key ticket-key
+                             :error (:error auth-result)
+                             :summary (str "Failed to authenticate for " ticket-key ": " (:error auth-result))})))
+                      ;; Other authentication errors
+                      {:success false
+                       :ticket-key ticket-key
+                       :error (:error auth-result)
+                       :summary (str "Failed to authenticate for " ticket-key ": " (:error auth-result))})
                     
                     ;; Process the attachments and upload users
                     (let [attachments (get-in ticket [:fields :attachment] [])
@@ -220,7 +274,8 @@
                  :error (str "Unexpected approval state: " (:message approval-check))
                  :summary (str "Ticket " ticket-key " in Review but " (:message approval-check))}))))))
         
-        ;; Not in Review status - process normally
+        ;; Open status (or any other status) - process normally
+        :else
         (let [attachments (get-in ticket [:fields :attachment] [])
             attachment-filenames (mapv :filename attachments)
             ;; Extract fields for intent detection - the function expects these at top level

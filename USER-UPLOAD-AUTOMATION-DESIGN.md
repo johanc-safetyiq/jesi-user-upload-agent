@@ -34,21 +34,27 @@ Without AI availability, the service will only process perfectly formatted CSV f
 
 ```mermaid
 flowchart TD
-  A["Wake via Azure Job - schedule; max parallel = 1"] --> B["Query Jira with JQL:<br/>status = Open AND assignee = currentUser() AND text ~ any(config.keywords)"]
+  A["Wake via Azure Job - schedule; max parallel = 1"] --> B["Query Jira with JQL:<br/>status IN (Open, Review) AND assignee = currentUser() AND text ~ any(config.keywords)"]
   B --> C{"Any tickets?"}
   C -- "No" --> Z["Exit"]
   C -- "Yes" --> D
 
   subgraph LOOP ["For each matching ticket"]
     direction TB
-    D["Fetch ticket: summary, description, attachments"] --> D1{"Status == Review?"}
-    D1 -- "Yes" --> D2{"Prior BOT approval-request comment exists<br/>AND later human comment says 'approved'?"}
+    D["Fetch ticket: summary, description, attachments"] --> D1{"Check Status"}
+    D1 -- "Review" --> D2{"Prior BOT approval-request comment exists<br/>AND later human comment says 'approved'?"}
     D2 -- "Yes" --> UPLOAD_ENTRY["Proceed to upload flow"]
-    D2 -- "No" --> SKIP_REVIEW["Skip; nothing to do"] --> NEXT
+    D2 -- "No" --> SKIP_REVIEW["Skip; waiting for approval"] --> NEXT
+    
+    D1 -- "Info Required" --> SKIP_INFO["Skip; waiting for credentials"] --> NEXT
 
-    D1 -- "No (Open)" --> TENANT["Extract tenant name from ticket (title/description)"]
+    D1 -- "Open" --> TENANT["Extract tenant name from ticket (title/description)"]
     TENANT --> AUTH["Authenticate with tenant credentials via 1Password"]
-    AUTH --> E["AI intent check on title + description + attachments -> boolean"]
+    AUTH --> AUTH_CHECK{"Credentials found?"}
+    AUTH_CHECK -- "No" --> INFO1["Post comment with setup instructions"]
+    INFO1 --> INFO2["Transition to Info Required"]
+    INFO2 --> NEXT
+    AUTH_CHECK -- "Yes" --> E["AI intent check on title + description + attachments -> boolean"]
     E --> F{"AI says 'user upload'?"}
     F -- "No" --> NEXT
     F -- "Yes" --> G["Process all attachments (xlsx/csv), all sheets"]
@@ -104,22 +110,33 @@ Below is an updated Mermaid diagram and implementation notes that reflect your d
 
 ```mermaid
 flowchart TD
-  A([Wake via Azure Job (schedule; max parallel = 1)]) --> B[Query Jira with JQL:<br/>status = Open AND assignee = currentUser() AND text ~ any(config.keywords)]
+  A([Wake via Azure Job (schedule; max parallel = 1)]) --> B[Query Jira with JQL:<br/>status IN (Open, Review) AND assignee = currentUser() AND text ~ any(config.keywords)]
   B --> C{Any tickets?}
   C -- No --> Z([Exit])
   C -- Yes --> D
 
   subgraph LOOP [For each matching ticket]
     direction TB
-    D[Fetch ticket: summary, description, attachments] --> D1{Status == Review?}
-    D1 -- Yes --> D2{Prior BOT approval-request comment exists<br/>AND a later human comment says 'approved'?}
-    D2 -- Yes --> UPLOAD_ENTRY[Proceed to upload flow]
-    D2 -- No --> SKIP_REVIEW[Skip; nothing to do] --> NEXT
+    D[Fetch ticket: summary, description, attachments] --> D1{Check Status}
+    D1 -- Review --> D2{Prior BOT approval-request comment exists<br/>AND a later human comment says 'approved'?}
+    D2 -- Yes --> AUTH_REV[Authenticate with tenant credentials]
+    AUTH_REV --> AUTH_REV_CHECK{Credentials found?}
+    AUTH_REV_CHECK -- No --> INFO_REV1[Post comment with setup instructions]
+    INFO_REV1 --> INFO_REV2[Transition to Info Required] --> NEXT
+    AUTH_REV_CHECK -- Yes --> UPLOAD_ENTRY[Proceed to upload flow]
+    D2 -- No --> SKIP_REVIEW[Skip; waiting for approval] --> NEXT
+    
+    D1 -- Info Required --> SKIP_INFO[Skip; waiting for credentials] --> NEXT
 
-    D1 -- No (Open) --> E[AI intent check on title+description+attachments → boolean]
+    D1 -- Open --> E[AI intent check on title+description+attachments → boolean]
     E --> F{AI says 'user upload'?}
     F -- No --> NEXT
-    F -- Yes --> G[Process all attachments (xlsx/csv), all sheets]
+    F -- Yes --> TENANT[Extract tenant from ticket]
+    TENANT --> AUTH[Authenticate with tenant credentials]
+    AUTH --> AUTH_CHECK{Credentials found?}
+    AUTH_CHECK -- No --> INFO1[Post comment with setup instructions]
+    INFO1 --> INFO2[Transition to Info Required] --> NEXT
+    AUTH_CHECK -- Yes --> G[Process all attachments (xlsx/csv), all sheets]
 
     subgraph PARSE [Parse & validate]
       direction TB

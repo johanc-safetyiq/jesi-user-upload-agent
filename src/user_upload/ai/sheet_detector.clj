@@ -1,10 +1,10 @@
-(ns user-upload.ai.sheet-detector
+(ns user_upload.ai.sheet-detector
   "AI-powered detection of sheet structure in complex Excel files.
    
    This module uses Claude to identify which sheet contains user data
    and where the headers and data rows are located."
-  (:require [user-upload.ai.claude :as claude]
-            [user-upload.parser.document-analyzer :as analyzer]
+  (:require [user_upload.ai.claude :as claude]
+            [user_upload.parser.document-analyzer :as analyzer]
             [clojure.tools.logging :as log]
             [clojure.java.io :as io]))
 

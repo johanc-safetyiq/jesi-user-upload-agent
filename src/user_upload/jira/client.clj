@@ -1,11 +1,11 @@
-(ns user-upload.jira.client
+(ns user_upload.jira.client
   "Jira REST API client for basic operations."
   (:require
     [clj-http.client :as http]
     [cheshire.core :as json]
     [clojure.string :as str]
-    [user-upload.config :as config]
-    [user-upload.log :as log])
+    [user_upload.config :as config]
+    [user_upload.log :as log])
   (:import
     [java.util Base64]
     [java.nio.file Files]

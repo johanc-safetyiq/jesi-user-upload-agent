@@ -1,13 +1,12 @@
-(ns user-upload.core
+(ns user_upload.core
   "Main entry point for the user upload agent system.
    
    This module provides the CLI interface and coordinates the complete
    workflow for processing user upload requests from Jira tickets."
-  (:require [user-upload.log :as log]
-            [user-upload.terminal :as terminal]
-            [user-upload.config :as config]
-            [user-upload.workflow.processor :as processor]
-            [user-upload.auth.onepassword :as op]
+  (:require [user_upload.log :as log]
+            [user_upload.config :as config]
+            [user_upload.workflow.processor :as processor]
+            [user_upload.auth.onepassword :as op]
             [clojure.tools.cli :as cli]
             [clojure.string :as str])
   (:gen-class))
@@ -36,18 +35,18 @@
   [options-summary]
   (->> ["User Upload Agent - Automated processing of Jira user upload requests"
         ""
-        "Usage: user-upload-agent [options]"
+        "Usage: user_upload-agent [options]"
         ""
         "Options:"
         options-summary
         ""
         "Examples:"
-        "  user-upload-agent --once          # Process all tickets once and exit"
-        "  user-upload-agent --single-ticket # Process only first ticket and exit"
-        "  user-upload-agent --ticket JESI-5928  # Process specific ticket"
-        "  user-upload-agent --watch         # Continuously watch for tickets"
-        "  user-upload-agent --dry-run       # Show what would be done"
-        "  user-upload-agent --verbose       # Enable detailed logging"
+        "  user_upload-agent --once          # Process all tickets once and exit"
+        "  user_upload-agent --single-ticket # Process only first ticket and exit"
+        "  user_upload-agent --ticket JESI-5928  # Process specific ticket"
+        "  user_upload-agent --watch         # Continuously watch for tickets"
+        "  user_upload-agent --dry-run       # Show what would be done"
+        "  user_upload-agent --verbose       # Enable detailed logging"
         ""]
        (str/join \newline)))
 
@@ -117,14 +116,14 @@
         (let [result (processor/run-once {:single-ticket (:single-ticket options)
                                           :ticket (:ticket options)})]
           (log/info "Processing complete" {:summary (:summary result)})
-          (terminal/print-summary (:summary result))
+          (println (:summary result))
           
           (if (:success result)
             (do
-              (terminal/print-success "Processing completed successfully")
+              (println "✓ Processing completed successfully")
               0) ; Exit code 0 for success
             (do
-              (terminal/print-partial-success (:summary result))
+              (println (str "⚠ Partial success: " (:summary result)))
               0))) ; Still exit 0 if some tickets were processed
         
         (catch Exception e
@@ -178,7 +177,7 @@
             
             (try
               (let [result (processor/run-once {:single-ticket (:single-ticket options)})]
-                (terminal/print-summary (:summary result))
+                (println (:summary result))
                 (when (:error result)
                   (log/error "Watch iteration error" {:error (:error result)})))
               
@@ -205,7 +204,7 @@
 (defn hello-world
   "A simple hello world function for testing basic functionality."
   []
-  (log/info "Hello from user-upload agent!")
+  (log/info "Hello from user_upload agent!")
   "Hello, World!")
 
 (defn -main
@@ -231,7 +230,7 @@
     
     ;; Show configuration
     (log/info "Starting user upload agent" {:options options :args arguments})
-    (terminal/print-status "User Upload Agent Starting...")
+    (println "User Upload Agent Starting...")
     
     (when (:dry-run options)
       (log/info "Running in DRY RUN mode" {:note "No changes will be made"})

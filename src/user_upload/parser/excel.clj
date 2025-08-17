@@ -1,4 +1,4 @@
-(ns user-upload.parser.excel
+(ns user_upload.parser.excel
   "Excel file parsing using docjure library"
   (:require [dk.ative.docjure.spreadsheet :as xl]
             [clojure.java.io :as io]
@@ -75,10 +75,17 @@
     (->> worksheet
          (xl/row-seq)
          (map (fn [row]
-                (->> row
-                     xl/cell-seq
-                     (map xl/read-cell)
-                     vec)))
+                (try
+                  (->> row
+                       xl/cell-seq
+                       (map xl/read-cell)
+                       vec)
+                  (catch Exception e
+                    ;; Log but continue with empty row if cell-seq fails
+                    (log/debug "Skipping row due to cell processing error:" (.getMessage e))
+                    []))))
+         ;; Filter out empty rows
+         (filter seq)
          vec)
     (catch Exception e
       (log/error e "Failed to extract sheet data")

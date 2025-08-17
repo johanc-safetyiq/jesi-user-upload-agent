@@ -1,4 +1,4 @@
-(ns user-upload.parser.document-analyzer
+(ns user_upload.parser.document-analyzer
   "Analyzes Excel/CSV documents to extract structured summaries for AI processing.
    
    This module helps identify the correct sheet and row structure in complex spreadsheets
@@ -32,9 +32,16 @@
          xl/row-seq
          (take max-rows)
          (mapv (fn [row]
-                 (->> row
-                      xl/cell-seq
-                      (mapv (comp normalize-value xl/read-cell))))))
+                 (try
+                   (->> row
+                        xl/cell-seq
+                        (mapv (comp normalize-value xl/read-cell)))
+                   (catch Exception e
+                     ;; Log but continue with empty row if cell-seq fails
+                     (log/debug "Skipping row due to cell processing error:" (.getMessage e))
+                     []))))
+         ;; Filter out empty rows
+         (filterv seq))
     (catch Exception e
       (log/error e "Failed to extract sheet rows")
       [])))
@@ -46,9 +53,14 @@
     (->> worksheet
          xl/row-seq
          (filter (fn [row]
-                  (some (fn [cell]
-                          (not (str/blank? (normalize-value (xl/read-cell cell)))))
-                        (xl/cell-seq row))))
+                  (try
+                    (some (fn [cell]
+                            (not (str/blank? (normalize-value (xl/read-cell cell)))))
+                          (xl/cell-seq row))
+                    (catch Exception e
+                      ;; Log but skip row if cell-seq fails
+                      (log/debug "Skipping row in count due to cell processing error:" (.getMessage e))
+                      false))))
          count)
     (catch Exception e
       (log/error e "Failed to count sheet rows")

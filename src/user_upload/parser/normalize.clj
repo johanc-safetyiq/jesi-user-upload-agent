@@ -1,4 +1,4 @@
-(ns user-upload.parser.normalize
+(ns user_upload.parser.normalize
   "Header normalization and column name standardization"
   (:require [clojure.string :as str]
             [clojure.set :as set]

@@ -1,9 +1,9 @@
-(ns user-upload.log
+(ns user_upload.log
   "Unified logging infrastructure with JSON output using Timbre.
    All logging should go through this namespace to ensure consistency."
   (:require [taoensso.timbre :as timbre]
             [cheshire.core :as json]
-            [user-upload.config :as config]
+            [user_upload.config :as config]
             [clojure.string :as str]))
 
 (defn json-output-fn

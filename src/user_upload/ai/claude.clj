@@ -1,11 +1,11 @@
-(ns user-upload.ai.claude
+(ns user_upload.ai.claude
   "Claude Code CLI integration for AI-powered ticket analysis.
    
    This module provides functions to invoke the Claude Code CLI in non-interactive
    mode and parse structured JSON responses for intent detection and column mapping."
   (:require [babashka.process :as process]
             [cheshire.core :as json]
-            [user-upload.log :as log]
+            [user_upload.log :as log]
             [clojure.string :as str]))
 
 (def ^:private default-timeout-ms 30000) ; 30 seconds
@@ -14,7 +14,7 @@
   "Build the Claude Code CLI command with required flags for non-interactive mode."
   [prompt system-prompt & {:keys [allowed-tools cwd]
                            :or {allowed-tools "Read"
-                                cwd "/Users/johan/Work/brisbane/jesi-system/user-upload-agent"}}]
+                                cwd "/Users/johan/Work/brisbane/jesi-system/user_upload-agent"}}]
   (let [full-prompt (str prompt "\n\n" system-prompt)]
     ["claude" 
      "--print"
@@ -130,7 +130,7 @@
    
    Returns:
      Map with :success boolean and either:
-       :is-user-upload - Boolean result
+       :is-user_upload - Boolean result
        :error - Error message"
   [ticket attachments]
   (let [prompt (str "Analyze this Jira ticket to determine if it's a user upload request:\n"
@@ -151,14 +151,14 @@
           (cond
             ;; Direct JSON response with is_user_upload field
             (get result "is_user_upload")
-            {:success true :is-user-upload (get result "is_user_upload")}
+            {:success true :is-user_upload (get result "is_user_upload")}
             
             ;; Text response that might contain JSON - try to extract it
             (string? result)
             (if-let [json-match (re-find #"\{[^}]*\"is_user_upload\"[^}]*\}" result)]
               (if-let [parsed (parse-json-response json-match)]
                 (if-let [is-upload (get parsed "is_user_upload")]
-                  {:success true :is-user-upload is-upload}
+                  {:success true :is-user_upload is-upload}
                   {:success false :error (str "Missing is_user_upload field after parsing. Got: " parsed)})
                 {:success false :error (str "Failed to parse JSON from text response: " json-match)})
               {:success false :error (str "No valid JSON found in text response: " result)})

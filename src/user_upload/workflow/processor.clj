@@ -1,4 +1,4 @@
-(ns user-upload.workflow.processor
+(ns user_upload.workflow.processor
   "Main ticket processing loop that handles the complete workflow.
    
    This module:
@@ -7,15 +7,15 @@
    - Downloads and processes attachments
    - Manages tenant-specific authentication
    - Orchestrates the approval workflow"
-  (:require [user-upload.log :as log]
+  (:require [user_upload.log :as log]
             [clj-http.client :as http]
-            [user-upload.config :as config]
-            [user-upload.jira.client :as jira]
-            [user-upload.ai.intent :as intent]
-            [user-upload.workflow.orchestrator :as orchestrator]
-            [user-upload.auth.tenant :as tenant]
-            [user-upload.auth.onepassword :as op]
-            [user-upload.jira.approval :as approval]
+            [user_upload.config :as config]
+            [user_upload.jira.client :as jira]
+            [user_upload.ai.intent :as intent]
+            [user_upload.workflow.orchestrator :as orchestrator]
+            [user_upload.auth.tenant :as tenant]
+            [user_upload.auth.onepassword :as op]
+            [user_upload.jira.approval :as approval]
             [clojure.string :as str]))
 
 (defn build-jql-query
@@ -310,9 +310,9 @@
             ticket-for-intent {:key (:key ticket)
                                :summary (get-in ticket [:fields :summary])
                                :description (get-in ticket [:fields :description])}
-            intent-result (intent/detect-user-upload-intent ticket-for-intent attachment-filenames)]
+            intent-result (intent/detect-user_upload-intent ticket-for-intent attachment-filenames)]
         
-        (if-not (:is-user-upload intent-result)
+        (if-not (:is-user_upload intent-result)
           {:success false
            :ticket-key ticket-key
            :error "Not identified as user upload request"

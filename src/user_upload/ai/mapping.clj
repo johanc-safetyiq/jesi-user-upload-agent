@@ -1,8 +1,8 @@
-(ns user-upload.ai.mapping
+(ns user_upload.ai.mapping
   "AI-powered column mapping for user upload files.
    
    This module maps file column headers to expected schema fields using Claude AI."
-  (:require [user-upload.ai.claude :as claude]
+  (:require [user_upload.ai.claude :as claude]
             [clojure.tools.logging :as log]
             [clojure.string :as str]))
 

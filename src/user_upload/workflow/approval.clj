@@ -1,4 +1,4 @@
-(ns user-upload.workflow.approval
+(ns user_upload.workflow.approval
   "Workflow approval automation with attachment fingerprinting.
    
    This module extends the basic approval functionality with:
@@ -6,9 +6,10 @@
    - Approval invalidation when files change
    - Integration with the processing workflow
    - Structured approval request generation"
-  (:require [user-upload.log :as log]
-            [user-upload.jira.approval :as jira-approval]
-            [user-upload.jira.client :as jira]
+  (:require [user_upload.log :as log]
+            [user_upload.jira.approval :as jira-approval]
+            [user_upload.jira.client :as jira]
+            [user_upload.parser.team_disambiguator :as disambig]
             [clojure.string :as str]
             [clojure.data.csv :as csv]
             [clojure.java.io :as io]
@@ -17,7 +18,7 @@
            [java.util Base64]
            [java.io ByteArrayOutputStream]))
 
-(def ^:private approval-request-prefix "[BOT:user-upload:approval-request:v2]")
+(def ^:private approval-request-prefix "[BOT:user_upload:approval-request:v2]")
 
 (defn- bytes-to-sha256
   "Calculate SHA-256 hash of byte array and return as base64 string."
@@ -352,7 +353,7 @@
      tenant - Tenant name
      valid-data - Validated user data
      attachments - Attachments with fingerprints (successful attachments)
-     extra-info - Map with additional info like mapping, credentials status, failed-attachments, etc.
+     extra-info - Map with additional info like mapping, credentials status, failed-attachments, backend-teams, etc.
    
    Returns:
      Map with success status and details"
@@ -364,14 +365,26 @@
               :user-count (count valid-data)
               :attachment-count (count attachments)})
     
-    ;; Step 1: Generate CSV for approval
-    (let [csv-result (generate-csv-for-approval valid-data)]
+    ;; Step 1: Analyze teams and split on whitespace
+    (let [team-analysis (disambig/analyze-dataset-teams valid-data)
+          _ (when (> (:split-count team-analysis) 0)
+              (log/info "Splitting team names with spaces" 
+                       {:count (:split-count team-analysis)
+                        :teams (map :team (:teams-with-spaces team-analysis))}))
+          
+          ;; Apply team splitting to the data for CSV generation
+          split-data (if (> (:split-count team-analysis) 0)
+                       (disambig/apply-team-splitting valid-data team-analysis)
+                       valid-data)
+          
+          ;; Step 2: Generate CSV for approval with split data
+          csv-result (generate-csv-for-approval split-data)]
       (if-not (:success csv-result)
         {:success false
          :error (:error csv-result)
          :message (str "Failed to generate CSV: " (:error csv-result))}
         
-        ;; Step 2: Upload CSV to Jira
+        ;; Step 3: Upload CSV to Jira
         (let [csv-attachment (try
                               (jira/add-attachment ticket-key 
                                                   (:filename csv-result)
@@ -381,7 +394,7 @@
                                          {:error (.getMessage e)})
                                 nil))
               
-              ;; Step 3: Generate approval request with CSV reference
+              ;; Step 4: Generate approval request with CSV reference
               csv-info (when csv-attachment
                         {:filename (:filename csv-result)
                          :id (first (map :id csv-attachment))
@@ -391,9 +404,14 @@
                               (assoc :csv-attachment csv-info))
               
               ;; CSV info is now included in format-approval-request-comment
-              comment-body (format-approval-request-comment request-data)
+              initial-comment (format-approval-request-comment request-data)
               
-              ;; Step 4: Post the comment
+              ;; Add team splitting message if needed
+              comment-body (if (> (:split-count team-analysis) 0)
+                            (disambig/enhance-approval-comment initial-comment team-analysis)
+                            initial-comment)
+              
+              ;; Step 5: Post the comment
               result (jira/add-comment ticket-key comment-body)]
           
           (if result

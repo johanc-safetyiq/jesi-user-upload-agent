@@ -1,4 +1,4 @@
-(ns user-upload.parser.csv
+(ns user_upload.parser.csv
   "CSV file parsing with encoding detection and robust error handling"
   (:require [clojure.data.csv :as csv]
             [clojure.java.io :as io]

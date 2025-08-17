@@ -1,14 +1,14 @@
-(ns user-upload.jira.approval
+(ns user_upload.jira.approval
   "Approval detection logic for user upload requests in Jira comments."
   (:require
-    [user-upload.jira.client :as jira-client]
-    [user-upload.config :as config]
-    [user-upload.log :as log]
+    [user_upload.jira.client :as jira-client]
+    [user_upload.config :as config]
+    [user_upload.log :as log]
     [clojure.string :as str]))
 
 ;; Constants and patterns
 
-(def ^:private approval-request-prefix "[BOT:user-upload:approval-request:v2]")
+(def ^:private approval-request-prefix "[BOT:user_upload:approval-request:v2]")
 
 (defn- normalize-comment-body
   "Normalize comment body for comparison - lowercase, collapse whitespace."
@@ -176,7 +176,7 @@
                           (when-let [file (:filename request-details)]
                             (format "- File: %s\n" file))
                           "\n**To approve:** Reply with exactly `approved` (case-insensitive)\n"
-                          "\nThis request was generated automatically by the user-upload agent.")]
+                          "\nThis request was generated automatically by the user_upload agent.")]
     (log/info "Requesting approval" {:issue-key issue-key :details request-details})
     (try
       (let [response (jira-client/add-comment issue-key comment-body)]

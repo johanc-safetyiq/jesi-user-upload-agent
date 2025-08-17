@@ -1,4 +1,4 @@
-(ns user-upload.auth.tenant
+(ns user_upload.auth.tenant
   "Tenant extraction logic for identifying the tenant from Jira tickets.
    
    Expected format in ticket content:

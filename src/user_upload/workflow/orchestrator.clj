@@ -1,4 +1,4 @@
-(ns user-upload.workflow.orchestrator
+(ns user_upload.workflow.orchestrator
   "Main workflow orchestrator that coordinates the complete user upload process.
    
    This module handles:
@@ -7,20 +7,20 @@
    - Approval workflow management
    - User and team creation
    - Result aggregation and reporting"
-  (:require [user-upload.log :as log]
-            [user-upload.auth.tenant :as tenant]
-            [user-upload.auth.onepassword :as op]
-            [user-upload.api.client :as api]
-            [user-upload.parser.excel :as excel]
-            [user-upload.parser.csv :as csv]
-            [user-upload.parser.normalize :as normalize]
-            [user-upload.parser.validate :as validate]
-            [user-upload.parser.document-analyzer :as analyzer]
-            [user-upload.ai.intent :as intent]
-            [user-upload.ai.mapping :as mapping]
-            [user-upload.ai.sheet-detector :as sheet-detector]
-            [user-upload.workflow.approval :as approval]
-            [user-upload.jira.client :as jira]
+  (:require [user_upload.log :as log]
+            [user_upload.auth.tenant :as tenant]
+            [user_upload.auth.onepassword :as op]
+            [user_upload.api.client :as api]
+            [user_upload.parser.excel :as excel]
+            [user_upload.parser.csv :as csv]
+            [user_upload.parser.normalize :as normalize]
+            [user_upload.parser.validate :as validate]
+            [user_upload.parser.document-analyzer :as analyzer]
+            [user_upload.ai.intent :as intent]
+            [user_upload.ai.mapping :as mapping]
+            [user_upload.ai.sheet-detector :as sheet-detector]
+            [user_upload.workflow.approval :as approval]
+            [user_upload.jira.client :as jira]
             [clojure.string :as str]))
 
 (defn extract-tenant-and-authenticate
@@ -742,7 +742,8 @@
                   
                   ;; Case 2: Approval required and ticket is Open - request approval
                   (and approval-required? (= ticket-status "Open"))
-                  (let [;; Prepare extra info for approval request
+                  (let [;; No longer fetching backend teams - we just split on whitespace
+                        ;; Prepare extra info for approval request
                         extra-info {:column-mapping (:mapping-used validation-result)
                                    :tenant-email (str "customersolutions+" tenant "@jesi.io")
                                    :credentials-found (if (nil? credentials-found) true credentials-found)

@@ -1,4 +1,4 @@
-(ns user-upload.auth.onepassword
+(ns user_upload.auth.onepassword
   "1Password CLI integration with bulk pre-loading of all credentials.
    
    This module fetches ALL credentials from the vault once at startup,
@@ -6,9 +6,9 @@
    This avoids timeouts when searching for specific credentials later."
   (:require [babashka.process :as process]
             [cheshire.core :as json]
-            [user-upload.log :as log]
+            [user_upload.log :as log]
             [clojure.string :as str]
-            [user-upload.config :as config]))
+            [user_upload.config :as config]))
 
 (def ^:private default-timeout-ms 10000)
 (def ^:private credentials-cache (atom {}))

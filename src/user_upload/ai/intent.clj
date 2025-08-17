@@ -1,11 +1,11 @@
-(ns user-upload.ai.intent
+(ns user_upload.ai.intent
   "AI-powered intent detection for Jira tickets.
    
    This module determines whether a Jira ticket represents a user upload request
    by analyzing the ticket summary, description, and attachments using Claude AI.
    No fallback heuristics - fails fast if AI is unavailable."
-  (:require [user-upload.ai.claude :as claude]
-            [user-upload.log :as log]
+  (:require [user_upload.ai.claude :as claude]
+            [user_upload.log :as log]
             [clojure.string :as str]))
 
 ;; Removed heuristic functions - no longer needed as we rely solely on AI detection
@@ -20,7 +20,7 @@
    
    Returns:
      Map with :method :ai and either:
-       :success true, :is-user-upload boolean
+       :success true, :is-user_upload boolean
        :success false, :error string"
   [ticket attachments]
   (log/debug "AI intent detection starting" 
@@ -31,12 +31,12 @@
     (if (:success result)
       {:method :ai
        :success true
-       :is-user-upload (:is-user-upload result)}
+       :is-user_upload (:is-user_upload result)}
       {:method :ai
        :success false
        :error (:error result)})))
 
-(defn detect-user-upload-intent
+(defn detect-user_upload-intent
   "Detect whether a Jira ticket represents a user upload request.
    
    Uses AI detection exclusively - fails fast if AI is unavailable.
@@ -47,7 +47,7 @@
    
    Returns:
      Map with keys:
-       :is-user-upload - Boolean result (false if AI fails)
+       :is-user_upload - Boolean result (false if AI fails)
        :method - Always :ai
        :ai-result - Original AI result
        :success - Boolean indicating if detection succeeded
@@ -65,8 +65,8 @@
       (do
         (log/info "AI intent detected" 
                   {:ticket (:key ticket)
-                   :is-user-upload (:is-user-upload ai-result)})
-        {:is-user-upload (:is-user-upload ai-result)
+                   :is-user_upload (:is-user_upload ai-result)})
+        {:is-user_upload (:is-user_upload ai-result)
          :method :ai
          :ai-result ai-result
          :success true})
@@ -76,7 +76,7 @@
         (log/error "AI intent detection failed" 
                    {:ticket (:key ticket)
                     :error (:error ai-result)})
-        {:is-user-upload false
+        {:is-user_upload false
          :method :ai
          :ai-result ai-result
          :success false
@@ -92,40 +92,40 @@
      Vector of results in same order as input"
   [ticket-attachment-pairs]
   (mapv (fn [[ticket attachments]]
-          (detect-user-upload-intent ticket attachments))
+          (detect-user_upload-intent ticket attachments))
         ticket-attachment-pairs))
 
 (comment
   ;; Test intent detection
   
   ;; Positive cases
-  (detect-user-upload-intent
+  (detect-user_upload-intent
     {:key "HR-123" 
      :summary "Upload new team members"
      :description "Please process the attached spreadsheet with new employee data"}
     ["team-members.xlsx"])
   
-  (detect-user-upload-intent
+  (detect-user_upload-intent
     {:key "IT-456"
      :summary "Add users to system"
      :description "Bulk user import needed"}
     ["users.csv"])
   
   ;; Negative cases
-  (detect-user-upload-intent
+  (detect-user_upload-intent
     {:key "BUG-789"
      :summary "Login page not working"
      :description "Users cannot log in to the system"}
     [])
   
-  (detect-user-upload-intent
+  (detect-user_upload-intent
     {:key "FEAT-101"
      :summary "Improve dashboard performance"
      :description "Dashboard loads too slowly"}
     ["performance-report.pdf"])
   
   ;; Edge cases
-  (detect-user-upload-intent
+  (detect-user_upload-intent
     {:key "UNCLEAR-202"
      :summary "Help needed"
      :description ""}
@@ -138,7 +138,7 @@
      [{:key "IT-789" :summary "New employees" :description "Onboard team"} ["staff.csv"]]])
   
   ;; Test with AI disabled
-  (detect-user-upload-intent
+  (detect-user_upload-intent
     {:key "HR-999" :summary "Add new staff members" :description ""}
     ["employees.xlsx"]
     :ai-enabled false))

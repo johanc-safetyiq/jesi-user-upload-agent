@@ -1,4 +1,4 @@
-(ns user-upload.config
+(ns user_upload.config
   "Configuration management using aero and environ."
   (:require [aero.core :as aero]
             [environ.core :refer [env]]

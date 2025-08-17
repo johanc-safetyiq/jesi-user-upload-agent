@@ -1,4 +1,4 @@
-(ns user-upload.parser.validate
+(ns user_upload.parser.validate
   "Data validation for user upload CSV files"
   (:require [clojure.string :as str]
             [clojure.tools.logging :as log]

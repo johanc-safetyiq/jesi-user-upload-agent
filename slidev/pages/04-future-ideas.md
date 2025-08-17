@@ -45,36 +45,9 @@ layout: center
 
 # Future Possibilities
 
-<div class="grid grid-cols-2 gap-6">
-
-## More Ticket Types
 - **Permission updates** - Bulk role changes
 - **Team restructuring** - Move users between teams
 - **Deactivation requests** - Offboarding automation
 - **Access reviews** - Periodic audits
-
-</div>
-
-<div v-click class="mt-8">
-
-## Integration Opportunities
-
-<div class="grid grid-cols-3 gap-4 mt-4">
-  <div class="text-center p-3 bg-blue-100 dark:bg-blue-900/30 rounded">
-    <div class="text-2xl mb-2">📧</div>
-    <div class="font-bold">Email Processing</div>
-    <div class="text-sm">Direct email submissions</div>
-  </div>
-  <div class="text-center p-3 bg-green-100 dark:bg-green-900/30 rounded">
-    <div class="text-2xl mb-2">📱</div>
-    <div class="font-bold">Slack/Teams</div>
-    <div class="text-sm">Chat-based requests</div>
-  </div>
-  <div class="text-center p-3 bg-purple-100 dark:bg-purple-900/30 rounded">
-    <div class="text-2xl mb-2">🔄</div>
-    <div class="font-bold">HR Systems</div>
-    <div class="text-sm">Direct integration</div>
-  </div>
-</div>
-
-</div>
+- **Report request** - Custom report generation
+- **Risk assessment** - Setup - customized - visualizations - query.

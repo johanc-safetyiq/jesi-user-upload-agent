@@ -1,11 +1,11 @@
-(ns user-upload.api.client
+(ns user_upload.api.client
   "Backend API client for authentication and CRUD operations."
   (:require
     [clj-http.client :as http]
     [cheshire.core :as json]
     [clojure.string :as str]
-    [user-upload.config :as config]
-    [user-upload.log :as log]))
+    [user_upload.config :as config]
+    [user_upload.log :as log]))
 
 ;; Token storage (in-memory for now)
 (def ^:private auth-token (atom nil))
